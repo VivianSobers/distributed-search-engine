@@ -53,6 +53,7 @@ class SearchIndex:
         self._max_pagerank = (
             max(float(row["pagerank"]) for row in self._docs.values()) if self._docs else 0.0
         )
+        self._pagerank = {doc_id: float(row["pagerank"]) for doc_id, row in self._docs.items()}
 
     def search(self, query: str, k: int = 10) -> list[dict[str, float | str]]:
         if self.docs_count == 0:
@@ -79,8 +80,7 @@ class SearchIndex:
         if not bm25_scores:
             return []
 
-        pagerank = {doc_id: float(row["pagerank"]) for doc_id, row in self._docs.items()}
-        combined = combine_scores(bm25_scores, pagerank, self._max_pagerank)
+        combined = combine_scores(bm25_scores, self._pagerank, self._max_pagerank)
 
         rows: list[dict[str, float | str]] = []
         for doc_id, score in combined.items():
