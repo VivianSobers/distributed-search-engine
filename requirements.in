@@ -1,0 +1,8 @@
+pyspark==3.3.4
+numpy<2
+pandas<2
+pyarrow
+fastapi
+uvicorn[standard]
+httpx
+pytest
