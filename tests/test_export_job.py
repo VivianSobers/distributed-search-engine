@@ -238,3 +238,93 @@ def test_validate_export_reports_df_mismatch(spark):
     )
     errors = validate_export(docs, index, expected_live=2)
     assert "index df does not match posting count for term" in errors
+
+
+def test_main_creates_v1_and_search_service_loads_it(spark, tmp_path: Path, monkeypatch, capsys):
+    _drop_export_tables(spark)
+    _create_export_tables(spark)
+    _seed_phase_a(spark)
+
+    monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    root = tmp_path / "exports"
+    rc = main(["--export-root", f"file://{root}"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["status"] == "ok"
+    assert payload["version"] == 1
+
+    v1 = root / "v1"
+    assert v1.is_dir()
+    assert (v1 / "manifest.json").is_file()
+    assert (v1 / "docs").is_dir()
+    assert (v1 / "index").is_dir()
+    assert not (root / ".tmp-v1").exists()
+
+    index = load_version(v1)
+    results = index.search("alpha", k=5)
+    assert results
+    assert results[0]["doc_id"] == "d1"
+
+
+def test_main_second_run_skips_when_snapshot_unchanged(spark, tmp_path: Path, monkeypatch, capsys):
+    _drop_export_tables(spark)
+    _create_export_tables(spark)
+    _seed_phase_a(spark)
+
+    monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    root = tmp_path / "exports"
+    assert main(["--export-root", f"file://{root}"]) == 0
+    assert main(["--export-root", f"file://{root}"]) == 0
+
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload == {"status": "skipped"}
+    assert (root / "v1").is_dir()
+    assert not (root / "v2").exists()
+
+
+def test_main_new_snapshot_creates_v2(spark, tmp_path: Path, monkeypatch):
+    _drop_export_tables(spark)
+    _create_export_tables(spark)
+    _seed_phase_a(spark)
+
+    monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    root = tmp_path / "exports"
+    assert main(["--export-root", f"file://{root}"]) == 0
+    _seed_phase_b(spark)
+    assert main(["--export-root", f"file://{root}"]) == 0
+
+    assert (root / "v1").is_dir()
+    assert (root / "v2").is_dir()
+    manifest = json.loads((root / "v2" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == 2
+    assert manifest["docs"] == 3
+
+
+def test_main_simulate_failure_keeps_v1_and_cleans_tmp(spark, tmp_path: Path, monkeypatch, capsys):
+    _drop_export_tables(spark)
+    _create_export_tables(spark)
+    _seed_phase_a(spark)
+
+    monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    root = tmp_path / "exports"
+    assert main(["--export-root", f"file://{root}"]) == 0
+    manifest_v1 = (root / "v1" / "manifest.json").read_text(encoding="utf-8")
+
+    _seed_phase_b(spark)
+    rc = main(["--export-root", f"file://{root}", "--simulate-failure"])
+    assert rc == 1
+
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["status"] == "error"
+    assert (root / "v1").is_dir()
+    assert (root / "v1" / "manifest.json").read_text(encoding="utf-8") == manifest_v1
+    assert not (root / "v2").exists()
+    assert not (root / ".tmp-v2").exists()
