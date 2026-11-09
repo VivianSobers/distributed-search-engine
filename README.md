@@ -159,3 +159,16 @@ bash scripts/local_e2e.sh
 ```
 
 The script prints `E2E PASSED` at the end. Use `--keep` to leave the cluster running afterwards.
+
+## Design decisions
+
+The specification leaves several rules open. These are the choices made here, based on the data:
+
+| Question | Decision | Reason |
+|---|---|---|
+| Required fields | `doc_id`, `url`, `title` and `text` for an upsert; only `doc_id` for a delete | Phase 1 deletes contain only `doc_id` and `op` |
+| Missing `links` | Treated as empty | 40 corpus rows omit it, and requiring it would drop 20 pages |
+| Meaning of "version" | A `version` field if present, otherwise the phase number. The earliest line wins a tie | The corpus has no version field, and the toy data labels its later row as a duplicate |
+| Deletes | Stored as tombstones | Re-ingesting an earlier phase cannot restore a deleted page |
+| Pages with no outgoing links | Their rank is shared evenly across all pages | Ranks stay a probability distribution that sums to 1 |
+| Index updates | Rebuilt from the current snapshot and skipped when it has not moved | A single atomic rebuild is simple and correct at this corpus size |
