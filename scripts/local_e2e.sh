@@ -56,6 +56,10 @@ export CLUSTER_ENV="$E2E_HOME/cluster.env"
 render_cluster_conf
 package_app
 
+alive_workers() {
+  curl -sf "http://127.0.0.1:18080/json/" 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin).get("aliveworkers", -1))' 2>/dev/null || echo -1
+}
+
 SERVE_PID=""
 cleanup() {
   if [ "$KEEP" -eq 1 ]; then
@@ -91,7 +95,7 @@ done
 hdfs dfsadmin -report | grep -q "Live datanodes (1)"
 
 for _ in $(seq 1 120); do
-  alive="$(curl -sf "http://127.0.0.1:18080/json/" | python -c 'import json,sys; print(json.load(sys.stdin).get("aliveworkers", -1))')"
+  alive="$(alive_workers)"
   if [ "$alive" = "2" ]; then
     break
   fi
@@ -165,8 +169,17 @@ bash "$RUN_ROOT/scripts/fault_tolerance_check.sh"
 bash "$RUN_ROOT/scripts/node1_ingest.sh" 1
 submit_job "$NODE3_IP" dse.jobs.index_job
 submit_job "$NODE3_IP" dse.jobs.pagerank_job --checkpoint-dir "hdfs://${NODE2_IP}:${NAMENODE_PORT}${CHECKPOINT_ROOT}/pagerank"
-if submit_job "$NODE3_IP" dse.jobs.export_job --export-root "hdfs://${NODE2_IP}:${NAMENODE_PORT}${EXPORT_ROOT}" --simulate-failure; then
+set +e
+simulate_failure_output="$(submit_job "$NODE3_IP" dse.jobs.export_job --export-root "hdfs://${NODE2_IP}:${NAMENODE_PORT}${EXPORT_ROOT}" --simulate-failure 2>&1)"
+simulate_failure_status=$?
+set -e
+if [ "$simulate_failure_status" -eq 0 ]; then
   echo "simulate-failure export unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q "simulated failure" <<<"$simulate_failure_output"; then
+  echo "$simulate_failure_output" >&2
+  echo "simulate-failure export did not report simulated failure" >&2
   exit 1
 fi
 
