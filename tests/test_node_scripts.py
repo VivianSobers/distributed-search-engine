@@ -395,10 +395,11 @@ def test_node4_serve_execution(tmp_path: Path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log_file = tmp_path / "calls.log"
+    repo_root = Path(__file__).resolve().parents[1]
 
     uvicorn_mock = bin_dir / "uvicorn"
     uvicorn_mock.write_text(
-        f"#!/usr/bin/env bash\necho \"SERVING_ROOT=$SERVING_ROOT uvicorn $@\" >> '{log_file}'\n",
+        f"#!/usr/bin/env bash\necho \"PYTHONPATH=$PYTHONPATH SERVING_ROOT=$SERVING_ROOT uvicorn $@\" >> '{log_file}'\n",
         encoding="utf-8",
     )
     uvicorn_mock.chmod(0o755)
@@ -408,10 +409,18 @@ def test_node4_serve_execution(tmp_path: Path):
     env["BD_HOME"] = str(tmp_path / "bd_home")
     env["SEARCH_PORT"] = "8000"
     env["SERVING_ROOT"] = "/serving"
+    script_path = Path("scripts/node4_serve.sh").resolve()
 
-    proc = subprocess.run(["bash", "scripts/node4_serve.sh"], env=env, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
     assert proc.returncode == 0, f"node4_serve failed: {proc.stderr}"
     calls = log_file.read_text(encoding="utf-8")
+    assert f"PYTHONPATH={repo_root}" in calls
     assert "SERVING_ROOT=/serving" in calls
     assert "--factory dse.serving.asgi:make_app" in calls
     assert "--host 0.0.0.0" in calls

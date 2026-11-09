@@ -5,6 +5,7 @@
 # Resolve the repo root even when its path has spaces
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$_LIB_DIR/.." && pwd)"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # Source scripts/env.sh
 # shellcheck source=scripts/env.sh
