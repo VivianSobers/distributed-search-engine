@@ -119,8 +119,8 @@ def main() -> None:
     parser.add_argument("--reload-url")
     args = parser.parse_args()
 
-    version = pull_latest(args.export_root, args.serving_root)
-    if version is not None and args.reload_url:
+    pull_latest(args.export_root, args.serving_root)
+    if args.reload_url:
         request = urllib.request.Request(args.reload_url, method="POST")
         with urllib.request.urlopen(request, timeout=10):
             pass

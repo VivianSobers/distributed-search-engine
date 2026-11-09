@@ -258,7 +258,7 @@ def test_failed_atomic_switch_preserves_current_and_allows_retry(tmp_path, monke
     assert load_version(serving / "current").version == 2
 
 
-def test_cli_posts_reload_only_after_a_switch(tmp_path, monkeypatch):
+def test_cli_posts_reload_after_every_successful_pull(tmp_path, monkeypatch):
     calls = []
     pull_calls = []
     results = iter([4, None])
@@ -289,7 +289,10 @@ def test_cli_posts_reload_only_after_a_switch(tmp_path, monkeypatch):
     pull.main()
     pull.main()
     assert pull_calls == [(EXPORT_ROOT, tmp_path), (EXPORT_ROOT, tmp_path)]
-    assert calls == [("http://localhost:8000/reload", "POST")]
+    assert calls == [
+        ("http://localhost:8000/reload", "POST"),
+        ("http://localhost:8000/reload", "POST"),
+    ]
 
 
 def test_cli_surfaces_reload_failure(tmp_path, monkeypatch):
