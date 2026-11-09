@@ -228,3 +228,27 @@ def rebuild_links(spark: SparkSession) -> int:
     spark.sql(f"INSERT OVERWRITE TABLE {LINKS_TABLE} SELECT src_id, dst_id FROM {temp_view}")
     spark.catalog.dropTempView(temp_view)
     return link_count
+
+
+def record_rejects(spark: SparkSession, rejected: DataFrame, phase: int) -> int:
+    existing = spark.table(REJECTS_TABLE).where(F.col("phase") == phase).select("line_no")
+    to_insert = rejected.select("line_no", "reason", "raw").dropDuplicates(["line_no"]).join(
+        existing,
+        on="line_no",
+        how="left_anti",
+    )
+
+    inserted = to_insert.count()
+    if inserted == 0:
+        return 0
+
+    to_insert_with_phase = (
+        to_insert.withColumn("phase", F.lit(phase).cast(IntegerType()))
+        .select("phase", "line_no", "reason", "raw")
+    )
+
+    temp_view = "_reject_rows_to_insert"
+    to_insert_with_phase.createOrReplaceTempView(temp_view)
+    spark.sql(f"INSERT INTO TABLE {REJECTS_TABLE} SELECT phase, line_no, reason, raw FROM {temp_view}")
+    spark.catalog.dropTempView(temp_view)
+    return inserted
