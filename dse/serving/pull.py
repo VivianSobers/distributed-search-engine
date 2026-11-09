@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import filecmp
 import os
 import re
 import shutil
 import subprocess
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -108,3 +110,21 @@ def pull_latest(
     finally:
         _remove_incoming(incoming)
     return version
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Pull the latest exported search version")
+    parser.add_argument("--export-root", required=True)
+    parser.add_argument("--serving-root", required=True, type=Path)
+    parser.add_argument("--reload-url")
+    args = parser.parse_args()
+
+    version = pull_latest(args.export_root, args.serving_root)
+    if version is not None and args.reload_url:
+        request = urllib.request.Request(args.reload_url, method="POST")
+        with urllib.request.urlopen(request, timeout=10):
+            pass
+
+
+if __name__ == "__main__":
+    main()
