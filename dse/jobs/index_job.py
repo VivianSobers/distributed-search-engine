@@ -66,3 +66,74 @@ def build_index(documents):
         live_documents.sparkSession.createDataFrame(postings, schema=INDEX_SCHEMA),
         live_documents.sparkSession.createDataFrame(stats, schema=DOC_STATS_SCHEMA),
     )
+
+
+def main(argv=None) -> int:
+    spark = build_session("index-job")
+    try:
+        source_snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+        previous_snapshot = last_snapshot(spark, "index")
+        if (
+            source_snapshot is not None
+            and previous_snapshot is not None
+            and source_snapshot == previous_snapshot
+        ):
+            print(json.dumps({"status": "skipped"}))
+            return 0
+
+        documents = spark.table(DOCUMENTS_TABLE)
+        postings, stats = build_index(documents)
+
+        spark.sql(
+            f"""
+            CREATE TABLE IF NOT EXISTS {INDEX_TABLE} (
+                term STRING,
+                doc_id STRING,
+                tf INT,
+                df INT
+            ) USING iceberg
+            """
+        )
+        spark.sql(
+            f"""
+            CREATE TABLE IF NOT EXISTS {DOC_STATS_TABLE} (
+                doc_id STRING,
+                length INT
+            ) USING iceberg
+            """
+        )
+
+        postings.createOrReplaceTempView("index_job_postings")
+        stats.createOrReplaceTempView("index_job_doc_stats")
+        spark.sql(
+            f"INSERT OVERWRITE {INDEX_TABLE} "
+            "SELECT term, doc_id, tf, df FROM index_job_postings"
+        )
+        spark.sql(
+            f"INSERT OVERWRITE {DOC_STATS_TABLE} "
+            "SELECT doc_id, length FROM index_job_doc_stats"
+        )
+        spark.catalog.dropTempView("index_job_postings")
+        spark.catalog.dropTempView("index_job_doc_stats")
+
+        if source_snapshot is not None:
+            record_snapshot(spark, "index", source_snapshot)
+
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "postings": postings.count(),
+                    "documents": stats.count(),
+                    "source_snapshot": source_snapshot,
+                },
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    finally:
+        spark.stop()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
