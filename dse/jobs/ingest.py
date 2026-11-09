@@ -252,3 +252,44 @@ def record_rejects(spark: SparkSession, rejected: DataFrame, phase: int) -> int:
     spark.sql(f"INSERT INTO TABLE {REJECTS_TABLE} SELECT phase, line_no, reason, raw FROM {temp_view}")
     spark.catalog.dropTempView(temp_view)
     return inserted
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Ingest a phase of JSONL document changes")
+    parser.add_argument("--phase", type=int, required=True)
+    parser.add_argument("--input", type=str, required=True)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    spark = build_session("dse-ingest")
+    try:
+        ensure_tables(spark)
+        accepted, rejected = read_phase(spark, args.input, args.phase)
+        lines_accepted = accepted.count()
+        rejected_count = rejected.count()
+
+        deduped = deduplicate(accepted)
+        deduped_count = deduped.count()
+        duplicates_removed = lines_accepted - deduped_count
+
+        record_rejects(spark, rejected, args.phase)
+        documents_changed = merge_documents(spark, deduped, args.phase)
+        link_count = rebuild_links(spark)
+
+        live_documents = spark.table(DOCUMENTS_TABLE).where(~F.col("is_deleted")).count()
+        summary = {
+            "lines_accepted": lines_accepted,
+            "rejected": rejected_count,
+            "duplicates_removed": duplicates_removed,
+            "documents_changed": documents_changed,
+            "live_documents": live_documents,
+            "link_count": link_count,
+            "documents_snapshot": current_snapshot(spark, DOCUMENTS_TABLE),
+        }
+        print(json.dumps(summary, separators=(",", ":")))
+        return 0
+    finally:
+        spark.stop()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
