@@ -3,6 +3,7 @@ from operator import add
 
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
+from pyspark.storagelevel import StorageLevel
 
 from dse.config import DOC_STATS_TABLE, DOCUMENTS_TABLE, INDEX_TABLE
 from dse.jobs.state import current_snapshot, last_snapshot, record_snapshot
@@ -26,14 +27,13 @@ DOC_STATS_SCHEMA = T.StructType(
     ]
 )
 
-
 def build_index(documents):
     live_documents = documents.where(F.col("is_deleted") == F.lit(False)).select(
         "doc_id", "text"
     )
     tokenized = live_documents.rdd.map(
         lambda row: (row["doc_id"], tokenize(row["text"] or ""))
-    )
+    ).persist(StorageLevel.MEMORY_AND_DISK)
     stats = tokenized.map(lambda item: (item[0], len(item[1])))
 
     term_frequencies = (
@@ -43,9 +43,7 @@ def build_index(documents):
         .reduceByKey(add)
     )
     document_frequencies = (
-        term_frequencies.map(lambda item: (item[0][0], item[0][1]))
-        .distinct()
-        .map(lambda item: (item[0], 1))
+        term_frequencies.map(lambda item: (item[0][0], 1))
         .reduceByKey(add)
     )
     postings = (
@@ -119,12 +117,14 @@ def main(argv=None) -> int:
         if source_snapshot is not None:
             record_snapshot(spark, "index", source_snapshot)
 
+        postings_count = spark.table(INDEX_TABLE).count()
+        documents_count = spark.table(DOC_STATS_TABLE).count()
         print(
             json.dumps(
                 {
                     "status": "ok",
-                    "postings": postings.count(),
-                    "documents": stats.count(),
+                    "postings": postings_count,
+                    "documents": documents_count,
                     "source_snapshot": source_snapshot,
                 },
                 separators=(",", ":"),
