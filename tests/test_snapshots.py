@@ -162,3 +162,48 @@ def test_index_not_skipped_after_rollback(env):
     capsys.readouterr()
     assert main(["rollback", "--snapshot", str(snap0)]) == 0
     assert last_snapshot(spark, "index") != current_snapshot(spark, DOCUMENTS_TABLE)
+
+
+def test_show_finds_doc_id_with_apostrophe(spark, monkeypatch, tmp_path, capsys):
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg_catalog.search")
+    for table in (
+        DOCUMENTS_TABLE,
+        LINKS_TABLE,
+        REJECTS_TABLE,
+        INDEX_TABLE,
+        DOC_STATS_TABLE,
+        PIPELINE_STATE_TABLE,
+    ):
+        spark.sql(f"DROP TABLE IF EXISTS {table}")
+    monkeypatch.setattr(snapshots, "build_session", lambda *a, **k: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    _ingest(
+        spark,
+        tmp_path / "apostrophe.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "O'Brien",
+                    "url": "http://x/o-brien",
+                    "title": "t o-brien",
+                    "text": "text o-brien",
+                    "links": [],
+                }
+            )
+        ],
+        0,
+    )
+    snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+    capsys.readouterr()
+    code, rows = _run(capsys, ["show", "--snapshot", str(snapshot), "--doc-id", "O'Brien"])
+    assert code == 0
+    assert rows[0]["found"] is True
+    assert rows[0]["doc_id"] == "O'Brien"
+    assert rows[0]["url"] == "http://x/o-brien"
+    assert rows[0]["title"] == "t o-brien"
+    assert rows[0]["text"] == "text o-brien"
+    assert rows[0]["links"] == []
+    assert rows[0]["version"] == 0
+    assert rows[0]["is_deleted"] is False
+    assert rows[0]["updated_phase"] == 0

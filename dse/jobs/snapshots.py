@@ -2,6 +2,8 @@ import argparse
 import json
 from typing import Sequence
 
+from pyspark.sql import functions as F
+
 from dse.config import CATALOG, DOCUMENTS_TABLE
 from dse.jobs.ingest import ensure_tables, rebuild_links
 from dse.jobs.state import current_snapshot
@@ -48,7 +50,7 @@ def _list(spark) -> int:
 def _show(spark, snapshot_id: int, doc_id: str) -> int:
     rows = (
         spark.sql(f"SELECT * FROM {DOCUMENTS_TABLE} VERSION AS OF {int(snapshot_id)}")
-        .where(f"doc_id = '{doc_id.replace(chr(39), chr(39) * 2)}'")
+        .where(F.col("doc_id") == doc_id)
         .collect()
     )
     if not rows:
