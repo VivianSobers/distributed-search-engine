@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-import pytest
 from pyspark.sql import functions as F
 
 from dse.config import DOCUMENTS_TABLE, LINKS_TABLE, REJECTS_TABLE
+from dse.jobs import ingest
 from dse.text import content_hash
 from dse.jobs.ingest import (
     deduplicate,
@@ -14,6 +14,7 @@ from dse.jobs.ingest import (
     rebuild_links,
     record_rejects,
 )
+from dse.jobs.state import current_snapshot
 
 
 def _drop_ingest_tables(spark) -> None:
@@ -411,3 +412,63 @@ def test_dangling_link_excluded_from_links_but_kept_in_document(spark, tmp_path:
 
     doc_links = spark.table(DOCUMENTS_TABLE).where(F.col("doc_id") == "1").select("links").collect()[0][0]
     assert doc_links == ["2", "404"]
+
+
+def test_main_prints_summary(spark, monkeypatch, tmp_path: Path, capsys):
+    _drop_ingest_tables(spark)
+    phase0 = _write_jsonl(
+        tmp_path / "phase0.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "1",
+                    "url": "https://ex/1",
+                    "title": "One",
+                    "text": "Plants need water.",
+                    "links": ["2", "9"],
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "2",
+                    "url": "https://ex/2",
+                    "title": "Two",
+                    "text": "Soil supports a plant.",
+                    "links": [],
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "2",
+                    "url": "https://ex/2",
+                    "title": "Two",
+                    "text": "duplicate ignored",
+                    "links": [],
+                }
+            ),
+            "{",
+            json.dumps({"op": "DELETE", "doc_id": "3"}),
+        ],
+    )
+    monkeypatch.setattr(ingest, "build_session", lambda *a, **k: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    assert ingest.main(["--phase", "0", "--input", phase0]) == 0
+    printed = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    payload = json.loads(printed[-1])
+    assert set(payload) == {
+        "lines_accepted",
+        "rejected",
+        "duplicates_removed",
+        "documents_changed",
+        "live_documents",
+        "link_count",
+        "documents_snapshot",
+    }
+    assert payload["lines_accepted"] == 4
+    assert payload["rejected"] == 1
+    assert payload["duplicates_removed"] == 1
+    assert payload["documents_changed"] == 3
+    assert payload["live_documents"] == 2
+    assert payload["link_count"] == 1
+    assert payload["documents_snapshot"] == current_snapshot(spark, DOCUMENTS_TABLE)
