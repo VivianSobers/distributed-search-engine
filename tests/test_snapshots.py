@@ -138,6 +138,23 @@ def test_unknown_snapshot_returns_one_and_changes_nothing(env):
     assert spark.table(DOCUMENTS_TABLE).where("NOT is_deleted").count() == 2
 
 
+def test_rollback_to_non_ancestor_returns_error_and_keeps_current(env):
+    spark, snap0, capsys = env
+    newest = current_snapshot(spark, DOCUMENTS_TABLE)
+    assert newest is not None
+    assert newest != snap0
+
+    code, rows = _run(capsys, ["rollback", "--snapshot", str(snap0)])
+    assert code == 0
+    assert rows[-1]["status"] == "ok"
+    assert current_snapshot(spark, DOCUMENTS_TABLE) == snap0
+
+    code, rows = _run(capsys, ["rollback", "--snapshot", str(newest)])
+    assert code == 1
+    assert rows[-1]["status"] == "error"
+    assert current_snapshot(spark, DOCUMENTS_TABLE) == snap0
+
+
 def test_index_not_skipped_after_rollback(env):
     spark, snap0, capsys = env
     assert index_job.main([]) == 0

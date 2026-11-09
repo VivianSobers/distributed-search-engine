@@ -61,12 +61,14 @@ def _show(spark, snapshot_id: int, doc_id: str) -> int:
 
 
 def _rollback(spark, snapshot_id: int) -> int:
-    known = {
+    current_ancestors = {
         int(r["snapshot_id"])
-        for r in spark.sql(f"SELECT snapshot_id FROM {DOCUMENTS_TABLE}.snapshots").collect()
+        for r in spark.sql(
+            f"SELECT snapshot_id FROM {DOCUMENTS_TABLE}.history WHERE is_current_ancestor = true"
+        ).collect()
     }
-    if snapshot_id not in known:
-        _emit({"status": "error", "error": f"unknown snapshot {snapshot_id}"})
+    if snapshot_id not in current_ancestors:
+        _emit({"status": "error", "error": f"snapshot {snapshot_id} is not a current ancestor"})
         return 1
     spark.sql(
         f"CALL {CATALOG}.system.rollback_to_snapshot('search.documents', {int(snapshot_id)})"
