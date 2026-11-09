@@ -165,7 +165,7 @@ def test_main_recomputes_when_documents_snapshot_changes(
     spark.sql(f"DROP TABLE IF EXISTS {DOCUMENTS_TABLE}")
     spark.sql(f"DROP TABLE IF EXISTS {LINKS_TABLE}")
     spark.sql(f"DROP TABLE IF EXISTS {PIPELINE_STATE_TABLE}")
-    spark.sql(f"DROP TABLE IF EXISTS iceberg_catalog.search.pagerank")
+    spark.sql("DROP TABLE IF EXISTS iceberg_catalog.search.pagerank")
     spark.sql(
         f"CREATE TABLE {DOCUMENTS_TABLE} (doc_id STRING, is_deleted BOOLEAN) USING iceberg"
     )

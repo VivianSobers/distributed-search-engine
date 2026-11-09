@@ -2,6 +2,7 @@ import argparse
 import json
 from operator import add
 
+from pyspark.sql import DataFrame
 from pyspark.sql import types as T
 from pyspark.storagelevel import StorageLevel
 
@@ -15,6 +16,14 @@ from dse.config import (
 )
 from dse.jobs.state import current_snapshot, last_snapshot, record_snapshot
 from dse.spark_session import build_session
+
+
+def load_graph(spark) -> tuple[DataFrame, DataFrame]:
+    nodes = spark.sql(
+        f"SELECT doc_id FROM {DOCUMENTS_TABLE} WHERE is_deleted = false"
+    )
+    edges = spark.sql(f"SELECT src_id, dst_id FROM {LINKS_TABLE}")
+    return nodes, edges
 
 
 def compute_pagerank(
@@ -64,18 +73,18 @@ def compute_pagerank(
         valid_edges.rdd.map(lambda row: (row["src_id"], row["dst_id"]))
         .groupByKey(numPartitions=partitions)
         .mapValues(list)
-        .partitionBy(partitions)
         .persist(StorageLevel.MEMORY_AND_DISK)
     )
 
     initial_rank = 1.0 / float(n)
     ranks = (
         node_rdd.mapValues(lambda _: initial_rank)
-        .partitionBy(partitions)
         .persist(StorageLevel.MEMORY_AND_DISK)
     )
 
     has_checkpoint_dir = sc.getCheckpointDir() is not None
+    teleport = (1.0 - damping) / float(n)
+    damping_value = float(damping)
     for idx in range(1, iterations + 1):
         dangling_mass = ranks.subtractByKey(links, numPartitions=partitions).values().sum()
         contribs = links.join(ranks, numPartitions=partitions).flatMap(
@@ -86,14 +95,11 @@ def compute_pagerank(
         )
 
         dangling_share = dangling_mass / float(n)
-        teleport = (1.0 - damping) / float(n)
-        damping_value = float(damping)
         new_ranks = (
             node_rdd.mapValues(lambda _: 0.0)
             .union(contribs)
             .reduceByKey(add, numPartitions=partitions)
             .mapValues(lambda value: teleport + damping_value * (value + dangling_share))
-            .partitionBy(partitions)
             .persist(StorageLevel.MEMORY_AND_DISK)
         )
 
@@ -139,10 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"status": "skipped"}))
             return 0
 
-        nodes = spark.sql(
-            f"SELECT doc_id FROM {DOCUMENTS_TABLE} WHERE is_deleted = false"
-        )
-        edges = spark.sql(f"SELECT src_id, dst_id FROM {LINKS_TABLE}")
+        nodes, edges = load_graph(spark)
         ranks = compute_pagerank(
             spark=spark,
             nodes=nodes,

@@ -7,11 +7,9 @@ from typing import Sequence
 from pyspark.sql import functions as F
 
 from dse.config import (
-    DOCUMENTS_TABLE,
-    LINKS_TABLE,
     PAGERANK_DEFAULT_ITERATIONS,
 )
-from dse.jobs.pagerank_job import compute_pagerank
+from dse.jobs.pagerank_job import compute_pagerank, load_graph
 from dse.spark_session import build_session
 
 
@@ -30,16 +28,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         spark.sparkContext.setCheckpointDir(args.checkpoint_dir)
 
-        nodes = spark.sql(
-            f"SELECT doc_id FROM {DOCUMENTS_TABLE} WHERE is_deleted = false"
-        )
-        edges = spark.sql(f"SELECT src_id, dst_id FROM {LINKS_TABLE}")
+        nodes, edges = load_graph(spark)
         ranks = compute_pagerank(
             spark=spark,
             nodes=nodes,
             edges=edges,
             iterations=args.iterations,
-        ).select("doc_id", F.col("rank").cast("double").alias("rank"))
+        ).select("doc_id", "rank")
 
         ranks.write.mode("overwrite").parquet(args.output)
         docs = ranks.count()
@@ -47,9 +42,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_abs_diff = 0.0
         ok = True
         if args.compare_to:
-            expected = spark.read.parquet(args.compare_to).select(
-                "doc_id", F.col("rank").cast("double").alias("rank")
-            )
+            expected = spark.read.parquet(args.compare_to).select("doc_id", "rank")
             joined = ranks.alias("actual").join(expected.alias("expected"), on="doc_id", how="full_outer")
             missing = joined.where(
                 F.col("actual.rank").isNull() | F.col("expected.rank").isNull()
