@@ -108,3 +108,14 @@ bash scripts/node3_process.sh
 ```
 
 Then run `bash scripts/node4_pull.sh` on Node 4. Search moves to a new version holding the restored data. To read a page as it was at an earlier version, use `bash scripts/node3_snapshots.sh show --snapshot <snapshot_id> --doc-id <doc_id>`.
+
+## 6. Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| `Invalid or placeholder IP address` | `config/cluster.env` still has `0.0.0.0` | Fill in the four node IPs on that machine |
+| `Live datanodes` shows fewer than 2 | ZeroTier or the firewall | Ping between the nodes and recheck section 1 |
+| A Spark job waits forever for resources | Workers cannot reach the driver | Check that the firewall trusts the ZeroTier interface on the driver's node |
+| The export fails with `built from a different snapshot` | Index or PageRank did not run after the last ingest | Run `bash scripts/node3_process.sh` |
+| `/search` returns 503 | No version has been pulled yet | Run `bash scripts/node4_pull.sh` |
+| `/reload` returns 409 | The new export could not be loaded | The old version keeps serving. Rerun the pull once the export is fixed |
