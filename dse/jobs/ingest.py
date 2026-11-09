@@ -119,3 +119,85 @@ def deduplicate(accepted: DataFrame) -> DataFrame:
         .where(F.col("_row_no") == 1)
         .drop("_row_no")
     )
+
+
+def merge_documents(spark: SparkSession, incoming: DataFrame, phase: int) -> int:
+    delete_links = F.array().cast("array<string>")
+    is_delete = F.col("op") == F.lit("DELETE")
+
+    normalized = (
+        incoming.select("doc_id", "url", "title", "text", "links", "op", "version")
+        .withColumn("is_deleted", is_delete)
+        .withColumn("url", F.when(is_delete, F.lit("")).otherwise(F.col("url")))
+        .withColumn("title", F.when(is_delete, F.lit("")).otherwise(F.col("title")))
+        .withColumn("text", F.when(is_delete, F.lit("")).otherwise(F.col("text")))
+        .withColumn("links", F.when(is_delete, delete_links).otherwise(F.col("links")))
+        .withColumn(
+            "content_hash",
+            _content_hash_udf(F.col("url"), F.col("title"), F.col("text"), F.col("links"), F.col("is_deleted")),
+        )
+        .withColumn("updated_phase", F.lit(phase).cast(IntegerType()))
+        .select(
+            "doc_id",
+            "url",
+            "title",
+            "text",
+            "links",
+            "version",
+            "content_hash",
+            "is_deleted",
+            "updated_phase",
+        )
+    )
+
+    current = spark.table(DOCUMENTS_TABLE).select(
+        F.col("doc_id").alias("target_doc_id"),
+        F.col("version").alias("target_version"),
+        F.col("content_hash").alias("target_hash"),
+    )
+
+    changed = (
+        normalized.alias("s")
+        .join(current.alias("t"), F.col("s.doc_id") == F.col("t.target_doc_id"), "left")
+        .where(
+            F.col("t.target_doc_id").isNull()
+            | (
+                (F.col("s.version") >= F.col("t.target_version"))
+                & (F.col("s.content_hash") != F.col("t.target_hash"))
+            )
+        )
+        .select("s.*")
+        .persist()  # keeps the hash UDF out of the MERGE plan, which cannot generate code for it
+    )
+
+    changed_count = changed.count()
+    if changed_count == 0:
+        changed.unpersist()
+        return 0
+
+    temp_view = "_incoming_documents_changes"
+    changed.createOrReplaceTempView(temp_view)
+    spark.sql(
+        f"""
+        MERGE INTO {DOCUMENTS_TABLE} AS t
+        USING {temp_view} AS s
+        ON t.doc_id = s.doc_id
+        WHEN MATCHED THEN UPDATE SET
+            t.url = s.url,
+            t.title = s.title,
+            t.text = s.text,
+            t.links = s.links,
+            t.version = s.version,
+            t.content_hash = s.content_hash,
+            t.is_deleted = s.is_deleted,
+            t.updated_phase = s.updated_phase
+        WHEN NOT MATCHED THEN INSERT (
+            doc_id, url, title, text, links, version, content_hash, is_deleted, updated_phase
+        ) VALUES (
+            s.doc_id, s.url, s.title, s.text, s.links, s.version, s.content_hash, s.is_deleted, s.updated_phase
+        )
+        """
+    )
+    spark.catalog.dropTempView(temp_view)
+    changed.unpersist()
+    return changed_count
