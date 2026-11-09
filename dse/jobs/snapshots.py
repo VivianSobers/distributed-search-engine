@@ -81,3 +81,30 @@ def _rollback(spark, snapshot_id: int) -> int:
         }
     )
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Iceberg time travel and rollback")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list")
+    show = sub.add_parser("show")
+    show.add_argument("--snapshot", type=int, required=True)
+    show.add_argument("--doc-id", required=True)
+    rb = sub.add_parser("rollback")
+    rb.add_argument("--snapshot", type=int, required=True)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    spark = build_session("dse-snapshots")
+    try:
+        ensure_tables(spark)
+        if args.command == "list":
+            return _list(spark)
+        if args.command == "show":
+            return _show(spark, args.snapshot, args.doc_id)
+        return _rollback(spark, args.snapshot)
+    finally:
+        spark.stop()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
