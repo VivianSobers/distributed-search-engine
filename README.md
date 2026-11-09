@@ -68,3 +68,17 @@ flowchart LR
     H -->|pull and validate| S[Search service on Node 4]
     S --> U[Browser]
 ```
+
+## Pipeline
+
+Ingestion parses each line and records rejected lines with a reason. It keeps one row per document ID, then merges only the rows that changed into the `documents` table. Running the same phase again commits nothing, so the Iceberg snapshot stays the same.
+
+Deletes are stored as tombstones. Re-ingesting Phase 0 after Phase 1 therefore cannot bring a deleted page back. The `links` table holds only edges whose source and destination are both live, and it is rebuilt after every change.
+
+The index job tokenizes live documents on the executors and writes postings and document lengths. PageRank runs 20 iterations on RDDs with a checkpoint every 5 iterations. Both jobs skip their work when the documents snapshot has not moved.
+
+The export job writes Parquet to a temporary directory, reads it back, validates it, writes a manifest, and renames the directory to `vN`. Validation checks the document count, nulls, unique IDs, orphan postings, document frequencies, and that PageRank sums to 1. A failure removes the temporary directory.
+
+Node 4 copies the newest complete export, loads it, and only then switches the `current` symlink. A corrupt copy leaves `current` where it was, and `/reload` keeps the old index in memory if the new one cannot be loaded.
+
+`scripts/node3_snapshots.sh` lists Iceberg versions, shows a page as of an earlier version, and rolls the `documents` table back after a bad update.
