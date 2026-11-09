@@ -7,6 +7,7 @@ from pyspark.sql import types as T
 from dse.config import DOC_STATS_TABLE, DOCUMENTS_TABLE, INDEX_TABLE, PAGERANK_TABLE
 from dse.jobs import export_job
 from dse.jobs.export_job import main, validate_export
+from dse.jobs.state import current_snapshot, record_snapshot
 from dse.serving.store import load_version
 
 
@@ -159,6 +160,13 @@ def _seed_phase_b(spark):
     )
 
 
+def _record_job_snapshots(spark):
+    snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+    assert snapshot is not None
+    record_snapshot(spark, "index", snapshot)
+    record_snapshot(spark, "pagerank", snapshot)
+
+
 def test_validate_export_reports_docs_count_mismatch(spark):
     docs = _docs_df(spark, _base_docs_rows())
     index = _index_df(spark, _base_index_rows())
@@ -185,6 +193,32 @@ def test_validate_export_reports_null_doc_id_or_url(spark):
     errors = validate_export(docs, index, expected_live=2)
     assert "docs has null doc_id" in errors
     assert "docs has null url" in errors
+
+
+def test_validate_export_reports_null_title(spark):
+    docs = _docs_df(
+        spark,
+        [
+            Row(doc_id="d1", url="https://ex/1", title=None, length=3, pagerank=0.7),
+            Row(doc_id="d2", url="https://ex/2", title="Two", length=2, pagerank=0.3),
+        ],
+    )
+    index = _index_df(spark, _base_index_rows())
+    errors = validate_export(docs, index, expected_live=2)
+    assert "docs has null title" in errors
+
+
+def test_validate_export_reports_null_length(spark):
+    docs = _docs_df(
+        spark,
+        [
+            Row(doc_id="d1", url="https://ex/1", title="One", length=None, pagerank=0.7),
+            Row(doc_id="d2", url="https://ex/2", title="Two", length=2, pagerank=0.3),
+        ],
+    )
+    index = _index_df(spark, _base_index_rows())
+    errors = validate_export(docs, index, expected_live=2)
+    assert "docs has null length" in errors
 
 
 def test_validate_export_reports_duplicate_doc_ids(spark):
@@ -244,6 +278,7 @@ def test_main_creates_v1_and_search_service_loads_it(spark, tmp_path: Path, monk
     _drop_export_tables(spark)
     _create_export_tables(spark)
     _seed_phase_a(spark)
+    _record_job_snapshots(spark)
 
     monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
@@ -272,6 +307,7 @@ def test_main_second_run_skips_when_snapshot_unchanged(spark, tmp_path: Path, mo
     _drop_export_tables(spark)
     _create_export_tables(spark)
     _seed_phase_a(spark)
+    _record_job_snapshots(spark)
 
     monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
@@ -290,6 +326,7 @@ def test_main_new_snapshot_creates_v2(spark, tmp_path: Path, monkeypatch):
     _drop_export_tables(spark)
     _create_export_tables(spark)
     _seed_phase_a(spark)
+    _record_job_snapshots(spark)
 
     monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
@@ -297,6 +334,7 @@ def test_main_new_snapshot_creates_v2(spark, tmp_path: Path, monkeypatch):
     root = tmp_path / "exports"
     assert main(["--export-root", f"file://{root}"]) == 0
     _seed_phase_b(spark)
+    _record_job_snapshots(spark)
     assert main(["--export-root", f"file://{root}"]) == 0
 
     assert (root / "v1").is_dir()
@@ -310,6 +348,7 @@ def test_main_simulate_failure_keeps_v1_and_cleans_tmp(spark, tmp_path: Path, mo
     _drop_export_tables(spark)
     _create_export_tables(spark)
     _seed_phase_a(spark)
+    _record_job_snapshots(spark)
 
     monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
@@ -319,6 +358,7 @@ def test_main_simulate_failure_keeps_v1_and_cleans_tmp(spark, tmp_path: Path, mo
     manifest_v1 = (root / "v1" / "manifest.json").read_text(encoding="utf-8")
 
     _seed_phase_b(spark)
+    _record_job_snapshots(spark)
     rc = main(["--export-root", f"file://{root}", "--simulate-failure"])
     assert rc == 1
 
@@ -328,3 +368,27 @@ def test_main_simulate_failure_keeps_v1_and_cleans_tmp(spark, tmp_path: Path, mo
     assert (root / "v1" / "manifest.json").read_text(encoding="utf-8") == manifest_v1
     assert not (root / "v2").exists()
     assert not (root / ".tmp-v2").exists()
+
+
+def test_main_stale_index_state_returns_error_and_creates_nothing(
+    spark, tmp_path: Path, monkeypatch, capsys
+):
+    _drop_export_tables(spark)
+    _create_export_tables(spark)
+    _seed_phase_a(spark)
+
+    snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+    assert snapshot is not None
+    record_snapshot(spark, "index", snapshot - 1)
+    record_snapshot(spark, "pagerank", snapshot)
+
+    monkeypatch.setattr(export_job, "build_session", lambda *args, **kwargs: spark)
+    monkeypatch.setattr(spark, "stop", lambda: None)
+
+    root = tmp_path / "exports"
+    rc = main(["--export-root", f"file://{root}"])
+    assert rc == 1
+
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload == {"status": "error", "errors": ["index built from a different snapshot"]}
+    assert not root.exists() or not any(root.iterdir())

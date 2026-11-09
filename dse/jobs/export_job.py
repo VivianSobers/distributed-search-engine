@@ -10,7 +10,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 from dse.config import DOC_STATS_TABLE, DOCUMENTS_TABLE, INDEX_TABLE, PAGERANK_TABLE
-from dse.jobs.state import current_snapshot
+from dse.jobs.state import current_snapshot, last_snapshot
 from dse.spark_session import build_session
 
 
@@ -148,6 +148,14 @@ def _run_export(spark, export_root: str, simulate_failure: bool) -> tuple[int, d
     jvm = spark.sparkContext._jvm
     conf = spark.sparkContext._jsc.hadoopConfiguration()
 
+    documents_snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+    index_snapshot = last_snapshot(spark, "index")
+    if index_snapshot != documents_snapshot:
+        return 1, {"status": "error", "errors": ["index built from a different snapshot"]}
+    pagerank_snapshot = last_snapshot(spark, "pagerank")
+    if pagerank_snapshot != documents_snapshot:
+        return 1, {"status": "error", "errors": ["pagerank built from a different snapshot"]}
+
     root_path = _path(jvm, export_root)
     fs = root_path.getFileSystem(conf)
     fs.mkdirs(root_path)
@@ -155,7 +163,6 @@ def _run_export(spark, export_root: str, simulate_failure: bool) -> tuple[int, d
     versions = _list_versions(fs, root_path)
     newest = versions[-1] if versions else 0
 
-    documents_snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
     if newest > 0:
         latest_manifest_path = _path(jvm, root_path.toString(), f"v{newest}", "manifest.json")
         latest_snapshot = _load_manifest_snapshot(spark, latest_manifest_path.toString())
