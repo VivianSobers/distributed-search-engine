@@ -7,10 +7,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 render_cluster_conf
 
 MASTER_URL="http://127.0.0.1:${SPARK_MASTER_WEBUI_PORT}/json/"
+: "${SPARK_WORKER_PORT:=18091}"
+: "${SPARK_WORKER_WEBUI_PORT:=18081}"
 CHECKPOINT_BASE="hdfs://${NODE2_IP}:${NAMENODE_PORT}${CHECKPOINT_ROOT}/fault-baseline"
 BASELINE_OUT="hdfs://${NODE2_IP}:${NAMENODE_PORT}/fault/baseline"
 AFTER_OUT="hdfs://${NODE2_IP}:${NAMENODE_PORT}/fault/after"
 JOB_LOG="${SPARK_LOG_DIR:-/tmp}/fault_after_$(date +%s).log"
+
+alive_workers() {
+  curl -sf "$MASTER_URL" 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin).get("aliveworkers", -1))' 2>/dev/null || echo -1
+}
 
 submit_job "$NODE3_IP" dse.jobs.fault_check \
   --iterations 40 \
@@ -26,14 +32,14 @@ job_pid=$!
 
 target_worker_json=""
 for _ in $(seq 1 120); do
-  target_worker_json="$(curl -sf "$MASTER_URL" | python -c 'import json,sys
+  target_worker_json="$(curl -sf "$MASTER_URL" 2>/dev/null | python -c 'import json,sys
 d=json.load(sys.stdin)
 apps=[a for a in d.get("activeapps",[]) if a.get("state")=="RUNNING"]
 workers=[w for w in d.get("workers",[]) if w.get("state")=="ALIVE"]
 if apps and workers:
     w=workers[0]
     print(json.dumps({"id":w["id"],"host":w["host"],"port":w["port"]}))
-')"
+' 2>/dev/null || true)"
   if [ -n "$target_worker_json" ]; then
     break
   fi
@@ -47,11 +53,14 @@ if [ -z "$target_worker_json" ]; then
 fi
 
 sleep 5
-if ! curl -sf "$MASTER_URL" | python -c 'import json,sys
+running_app="$(
+  curl -sf "$MASTER_URL" 2>/dev/null | python -c 'import json,sys
 d=json.load(sys.stdin)
 apps=[a for a in d.get("activeapps",[]) if a.get("state")=="RUNNING"]
-raise SystemExit(0 if apps else 1)
-'; then
+print(1 if apps else 0)
+' 2>/dev/null || echo 0
+)"
+if [ "$running_app" != "1" ]; then
   echo "Application did not stay RUNNING long enough" >&2
   kill "$job_pid" 2>/dev/null || true
   wait "$job_pid" 2>/dev/null || true
@@ -105,7 +114,7 @@ if ! grep -q '"ok":[[:space:]]*true' "$JOB_LOG"; then
 fi
 
 for _ in $(seq 1 60); do
-  aliveworkers="$(curl -sf "$MASTER_URL" | python -c 'import json,sys; print(json.load(sys.stdin).get("aliveworkers", -1))')"
+  aliveworkers="$(alive_workers)"
   if [ "$aliveworkers" = "1" ]; then
     break
   fi
@@ -123,7 +132,7 @@ instance=$(( worker_port - SPARK_WORKER_PORT + 1 ))
   "spark://127.0.0.1:${SPARK_MASTER_PORT}"
 
 for _ in $(seq 1 120); do
-  aliveworkers="$(curl -sf "$MASTER_URL" | python -c 'import json,sys; print(json.load(sys.stdin).get("aliveworkers", -1))')"
+  aliveworkers="$(alive_workers)"
   if [ "$aliveworkers" = "2" ]; then
     break
   fi
