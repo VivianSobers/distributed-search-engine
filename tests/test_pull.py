@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pyarrow as pa
@@ -255,3 +256,63 @@ def test_failed_atomic_switch_preserves_current_and_allows_retry(tmp_path, monke
     monkeypatch.setattr(pull.os, "replace", replace)
     assert pull.pull_latest(EXPORT_ROOT, serving, FakeHdfs(exports)) == 2
     assert load_version(serving / "current").version == 2
+
+
+def test_cli_posts_reload_only_after_a_switch(tmp_path, monkeypatch):
+    calls = []
+    pull_calls = []
+    results = iter([4, None])
+
+    def pull_latest(root, serving):
+        pull_calls.append((root, serving))
+        return next(results)
+
+    monkeypatch.setattr(pull, "pull_latest", pull_latest)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def urlopen(request, **kwargs):
+        calls.append((request.full_url, request.get_method()))
+        return Response()
+
+    monkeypatch.setattr(pull.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["pull", "--export-root", EXPORT_ROOT, "--serving-root", str(tmp_path),
+         "--reload-url", "http://localhost:8000/reload"],
+    )
+    pull.main()
+    pull.main()
+    assert pull_calls == [(EXPORT_ROOT, tmp_path), (EXPORT_ROOT, tmp_path)]
+    assert calls == [("http://localhost:8000/reload", "POST")]
+
+
+def test_cli_surfaces_reload_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(pull, "pull_latest", lambda root, serving: 1)
+
+    def fail_reload(request, **kwargs):
+        raise OSError("reload failed")
+
+    monkeypatch.setattr(pull.urllib.request, "urlopen", fail_reload)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["pull", "--export-root", EXPORT_ROOT, "--serving-root", str(tmp_path),
+         "--reload-url", "http://localhost:8000/reload"],
+    )
+    with pytest.raises(OSError, match="reload failed"):
+        pull.main()
+
+
+def test_module_cli_exposes_arguments():
+    result = subprocess.run(
+        [sys.executable, "-m", "dse.serving.pull", "--help"],
+        check=True, capture_output=True, text=True,
+    )
+    assert "--export-root" in result.stdout
+    assert "--serving-root" in result.stdout
+    assert "--reload-url" in result.stdout
