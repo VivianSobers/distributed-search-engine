@@ -82,3 +82,15 @@ The export job writes Parquet to a temporary directory, reads it back, validates
 Node 4 copies the newest complete export, loads it, and only then switches the `current` symlink. A corrupt copy leaves `current` where it was, and `/reload` keeps the old index in memory if the new one cannot be loaded.
 
 `scripts/node3_snapshots.sh` lists Iceberg versions, shows a page as of an earlier version, and rolls the `documents` table back after a bad update.
+
+## Ranking
+
+Parameters come from the project specification: BM25 with k1 = 1.2 and b = 0.75, PageRank damping of 0.85, and at least 10 iterations.
+
+```text
+IDF(t)      = ln(1 + (N - df + 0.5) / (df + 0.5))
+BM25(D, Q)  = sum over t in Q of IDF(t) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * len(D) / avgdl))
+Final score = 0.7 * (BM25 / max BM25) + 0.3 * (PageRank / max PageRank)
+```
+
+The BM25 maximum is taken over the results of the current query, and the PageRank maximum over the whole served corpus. A page with no incoming links gets a low PageRank, so it can rank below a page with a slightly lower BM25 score. The page titled April ranks 37th for the query `april` for this reason.
