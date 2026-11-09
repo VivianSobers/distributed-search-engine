@@ -1,0 +1,5 @@
+spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+spark.sql.catalog.iceberg_catalog=org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.iceberg_catalog.type=hadoop
+spark.sql.catalog.iceberg_catalog.warehouse=<warehouse>
+spark.jars=<absolute path of the Iceberg jar>
