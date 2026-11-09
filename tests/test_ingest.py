@@ -338,3 +338,76 @@ def test_stored_hash_matches_shared_content_hash(spark, tmp_path: Path):
     rows = {r["doc_id"]: r["content_hash"] for r in spark.table(DOCUMENTS_TABLE).collect()}
     assert rows["1"] == content_hash("u", "t", "x", ["2"], False)
     assert rows["9"] == content_hash("", "", "", [], True)
+
+
+def test_higher_version_wins_within_file(spark, tmp_path: Path):
+    _drop_ingest_tables(spark)
+
+    phase0 = _write_jsonl(
+        tmp_path / "versions.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "7",
+                    "url": "https://ex/7",
+                    "title": "Seven",
+                    "text": "old text",
+                    "version": 1,
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "7",
+                    "url": "https://ex/7",
+                    "title": "Seven",
+                    "text": "new text",
+                    "version": 2,
+                }
+            ),
+        ],
+    )
+
+    _run_phase(spark, phase0, 0)
+
+    text_value = spark.table(DOCUMENTS_TABLE).where(F.col("doc_id") == "7").select("text").collect()[0][0]
+    assert text_value == "new text"
+
+
+def test_dangling_link_excluded_from_links_but_kept_in_document(spark, tmp_path: Path):
+    _drop_ingest_tables(spark)
+
+    phase0 = _write_jsonl(
+        tmp_path / "dangling.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "1",
+                    "url": "https://ex/1",
+                    "title": "One",
+                    "text": "Body",
+                    "links": ["2", "404"],
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "2",
+                    "url": "https://ex/2",
+                    "title": "Two",
+                    "text": "Body",
+                    "links": [],
+                }
+            ),
+        ],
+    )
+
+    _run_phase(spark, phase0, 0)
+
+    links = {
+        (row["src_id"], row["dst_id"])
+        for row in spark.table(LINKS_TABLE).select("src_id", "dst_id").collect()
+    }
+    assert ("1", "2") in links
+    assert ("1", "404") not in links
+
+    doc_links = spark.table(DOCUMENTS_TABLE).where(F.col("doc_id") == "1").select("links").collect()[0][0]
+    assert doc_links == ["2", "404"]
