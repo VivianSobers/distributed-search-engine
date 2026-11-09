@@ -27,6 +27,10 @@ def validate_export(docs: DataFrame, index: DataFrame, expected_live: int) -> li
         errors.append("docs has null doc_id")
     if docs.where(F.col("url").isNull()).limit(1).count() > 0:
         errors.append("docs has null url")
+    if docs.where(F.col("title").isNull()).limit(1).count() > 0:
+        errors.append("docs has null title")
+    if docs.where(F.col("length").isNull()).limit(1).count() > 0:
+        errors.append("docs has null length")
 
     distinct_doc_ids = docs.select("doc_id").distinct().count()
     if distinct_doc_ids != docs_count:
