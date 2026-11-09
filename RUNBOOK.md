@@ -55,3 +55,19 @@ hdfs dfsadmin -report | grep 'Live datanodes'
 ```
 
 It should report 2 live DataNodes. The Spark master page at `http://<node3-ip>:8080` should list 2 workers.
+
+## 4. Demo order
+
+Phase 0:
+
+| Node | Command |
+|---|---|
+| Node 1 | `bash scripts/node1_ingest.sh 0` |
+| Node 3 | `bash scripts/node3_process.sh` |
+| Node 4 | `bash scripts/node4_pull.sh` |
+
+Open `http://<node4-ip>:8000` and search. `/health` should report version 1 and 1000 documents.
+
+Phase 1 uses the same three commands with `1` in place of `0`. `/health` should then report version 2 and 975 documents.
+
+To show that re-ingesting changes nothing, run `bash scripts/node1_ingest.sh 0` again. The printed `documents_changed` is 0.
