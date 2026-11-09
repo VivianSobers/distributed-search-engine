@@ -1,7 +1,7 @@
 import math
 import pytest
 
-from dse.ranking import bm25_term, idf
+from dse.ranking import bm25_term, combine_scores, idf
 
 
 def test_idf_exact_and_positive():
@@ -27,3 +27,42 @@ def test_bm25_term_longer_document_scores_lower():
 
 def test_bm25_term_zero_tf():
     assert bm25_term(0, 10, 10, 1.0) == 0.0
+
+
+def test_combine_scores_exact():
+    scores = combine_scores({"a": 2.0, "b": 1.0}, {"a": 0.1, "b": 0.4}, 0.4)
+    assert scores["a"] == pytest.approx(0.775)
+    assert scores["b"] == pytest.approx(0.65)
+
+
+def test_combine_scores_doc_absent_from_pagerank():
+    scores = combine_scores({"a": 2.0, "c": 1.0}, {"a": 0.4}, 0.4)
+    assert scores["a"] == pytest.approx(0.7 * 1.0 + 0.3 * 1.0)
+    assert scores["c"] == pytest.approx(0.7 * 0.5 + 0.3 * 0.0)
+
+
+def test_combine_scores_doc_only_in_pagerank_not_in_bm25():
+    scores = combine_scores({"a": 2.0}, {"a": 0.2, "other": 0.4}, 0.4)
+    assert set(scores.keys()) == {"a"}
+
+
+def test_combine_scores_empty_input():
+    assert combine_scores({}, {"a": 0.4}, 0.4) == {}
+    assert combine_scores({}, {}, 0.0) == {}
+
+
+def test_combine_scores_zero_max_bm25():
+    scores = combine_scores({"a": 0.0, "b": 0.0}, {"a": 0.1, "b": 0.4}, 0.4)
+    assert scores["a"] == pytest.approx(0.3 * (0.1 / 0.4))
+    assert scores["b"] == pytest.approx(0.3 * (0.4 / 0.4))
+
+
+def test_combine_scores_zero_max_pagerank():
+    scores = combine_scores({"a": 2.0, "b": 1.0}, {"a": 0.0, "b": 0.0}, 0.0)
+    assert scores["a"] == pytest.approx(0.7 * (2.0 / 2.0))
+    assert scores["b"] == pytest.approx(0.7 * (1.0 / 2.0))
+
+
+def test_combine_scores_both_zero_max():
+    scores = combine_scores({"a": 0.0}, {"a": 0.0}, 0.0)
+    assert scores["a"] == 0.0
