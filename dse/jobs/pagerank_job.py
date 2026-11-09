@@ -119,7 +119,7 @@ def compute_pagerank(
 def _parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Compute PageRank from current corpus")
     parser.add_argument("--iterations", type=int, default=PAGERANK_DEFAULT_ITERATIONS)
-    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    parser.add_argument("--checkpoint-dir", type=str, required=True)
     return parser.parse_args(argv)
 
 
@@ -127,8 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     spark = build_session("pagerank-job")
     try:
-        if args.checkpoint_dir:
-            spark.sparkContext.setCheckpointDir(args.checkpoint_dir)
+        spark.sparkContext.setCheckpointDir(args.checkpoint_dir)
 
         documents_snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
         previous_snapshot = last_snapshot(spark, "pagerank")

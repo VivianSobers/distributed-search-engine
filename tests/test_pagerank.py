@@ -127,7 +127,7 @@ def test_checkpointing_keeps_same_ranks(spark, tmp_path):
     assert with_checkpoint == pytest.approx(without_checkpoint, abs=1e-9)
 
 
-def test_main_skips_second_run_when_snapshot_unchanged(spark, monkeypatch, capsys):
+def test_main_skips_second_run_when_snapshot_unchanged(spark, monkeypatch, tmp_path, capsys):
     spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg_catalog.search")
     spark.sql(f"DROP TABLE IF EXISTS {DOCUMENTS_TABLE}")
     spark.sql(f"DROP TABLE IF EXISTS {LINKS_TABLE}")
@@ -144,8 +144,9 @@ def test_main_skips_second_run_when_snapshot_unchanged(spark, monkeypatch, capsy
     monkeypatch.setattr(pagerank_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
 
-    assert main([]) == 0
-    assert main([]) == 0
+    checkpoint_dir = f"file://{tmp_path / 'chk'}"
+    assert main(["--checkpoint-dir", checkpoint_dir]) == 0
+    assert main(["--checkpoint-dir", checkpoint_dir]) == 0
 
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert json.loads(lines[-1]) == {"status": "skipped"}
@@ -158,7 +159,7 @@ def test_compute_pagerank_source_has_no_collect_or_to_pandas():
 
 
 def test_main_recomputes_when_documents_snapshot_changes(
-    spark, monkeypatch, capsys
+    spark, monkeypatch, tmp_path, capsys
 ):
     spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg_catalog.search")
     spark.sql(f"DROP TABLE IF EXISTS {DOCUMENTS_TABLE}")
@@ -177,12 +178,13 @@ def test_main_recomputes_when_documents_snapshot_changes(
     monkeypatch.setattr(pagerank_job, "build_session", lambda *args, **kwargs: spark)
     monkeypatch.setattr(spark, "stop", lambda: None)
 
-    assert main([]) == 0
+    checkpoint_dir = f"file://{tmp_path / 'chk'}"
+    assert main(["--checkpoint-dir", checkpoint_dir]) == 0
 
     spark.sql(f"INSERT OVERWRITE {DOCUMENTS_TABLE} VALUES ('A', false), ('D', false)")
     spark.sql(f"INSERT OVERWRITE {LINKS_TABLE} VALUES ('A', 'D')")
 
-    assert main([]) == 0
+    assert main(["--checkpoint-dir", checkpoint_dir]) == 0
 
     output_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     second_run = json.loads(output_lines[-1])
