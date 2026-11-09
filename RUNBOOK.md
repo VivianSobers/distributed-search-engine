@@ -14,3 +14,25 @@ Spark and HDFS use many ports, so trust the ZeroTier interface on each machine:
 | Fedora (firewalld) | `sudo firewall-cmd --permanent --zone=trusted --add-interface=<zerotier-interface> && sudo firewall-cmd --reload` |
 
 Find the interface name with `ip link`. It starts with `zt`.
+
+## 2. Software, on every node
+
+Each machine needs Java 11 and Python 3.10.
+
+```bash
+git clone https://github.com/VivianSobers/distributed-search-engine.git
+cd distributed-search-engine
+bash scripts/install_deps.sh
+```
+
+Edit `config/cluster.env` and replace the four `NODE*_IP` placeholders with the ZeroTier IPs. Every machine needs the same values, and the node scripts refuse to run while a placeholder remains.
+
+On Node 1, download the corpus from the course page to `data/full/phase-0/pages.jsonl` and `data/full/phase-1/changes.json`.
+
+On Node 4, create the serving directory:
+
+```bash
+sudo mkdir -p /serving && sudo chown "$USER" /serving
+```
+
+The node scripts are bash scripts. Run them with `bash scripts/<name>.sh` from any directory.
