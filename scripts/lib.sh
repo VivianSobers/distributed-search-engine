@@ -31,6 +31,7 @@ export SPARK_CONF_DIR="$BD_HOME/cluster-conf/spark"
 
 render_cluster_conf() {
     python "$REPO_ROOT/deploy/render_configs.py" --env "${CLUSTER_ENV:-$REPO_ROOT/config/cluster.env}" --out "$BD_HOME/cluster-conf" "$@"
+    cp -f "$HADOOP_HOME/etc/hadoop/log4j.properties" "$BD_HOME/cluster-conf/hadoop/"
 }
 
 package_app() {
