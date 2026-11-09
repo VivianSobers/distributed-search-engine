@@ -58,3 +58,26 @@ def _show(spark, snapshot_id: int, doc_id: str) -> int:
     out["found"] = True
     _emit(out)
     return 0
+
+
+def _rollback(spark, snapshot_id: int) -> int:
+    known = {
+        int(r["snapshot_id"])
+        for r in spark.sql(f"SELECT snapshot_id FROM {DOCUMENTS_TABLE}.snapshots").collect()
+    }
+    if snapshot_id not in known:
+        _emit({"status": "error", "error": f"unknown snapshot {snapshot_id}"})
+        return 1
+    spark.sql(
+        f"CALL {CATALOG}.system.rollback_to_snapshot('search.documents', {int(snapshot_id)})"
+    )
+    link_count = rebuild_links(spark)
+    _emit(
+        {
+            "status": "ok",
+            "current_snapshot": current_snapshot(spark, DOCUMENTS_TABLE),
+            "live_documents": _live_count(spark, snapshot_id),
+            "link_count": link_count,
+        }
+    )
+    return 0
