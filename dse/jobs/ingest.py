@@ -110,3 +110,12 @@ def read_phase(spark: SparkSession, path: str, phase: int) -> tuple[DataFrame, D
     accepted = spark.createDataFrame(accepted_rdd, schema=ACCEPTED_SCHEMA)
     rejected = spark.createDataFrame(rejected_rdd, schema=REJECTED_SCHEMA)
     return accepted, rejected
+
+
+def deduplicate(accepted: DataFrame) -> DataFrame:
+    window = Window.partitionBy("doc_id").orderBy(F.col("version").desc(), F.col("line_no").asc())
+    return (
+        accepted.withColumn("_row_no", F.row_number().over(window))
+        .where(F.col("_row_no") == 1)
+        .drop("_row_no")
+    )
