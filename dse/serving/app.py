@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from dse.serving.store import ExportError, SearchIndex, load_version
 
 def create_app(serving_root: Path) -> FastAPI:
     index_ref: dict[str, SearchIndex | None] = {"index": None}
-    write_lock = threading.Lock()
     static_html = Path(__file__).with_name("static") / "index.html"
 
     def _resolve_current() -> Path:
@@ -55,8 +53,7 @@ def create_app(serving_root: Path) -> FastAPI:
             loaded = _load_current()
         except ExportError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        with write_lock:
-            index_ref["index"] = loaded
+        index_ref["index"] = loaded
         return {"status": "ok", "version": loaded.version, "docs": loaded.docs_count}
 
     @app.get("/", response_class=HTMLResponse)
