@@ -327,3 +327,14 @@ def test_reingest_phase0_after_phase1_keeps_tombstone(spark, tmp_path: Path):
         .collect()[0][0]
     )
     assert doc2_deleted is True
+
+
+def test_stored_hash_matches_shared_content_hash(spark, tmp_path: Path):
+    _drop_ingest_tables(spark)
+    upsert = json.dumps({"doc_id": "1", "url": "u", "title": "t", "text": "x", "links": ["2"]})
+    delete = json.dumps({"op": "DELETE", "doc_id": "9"})
+    _run_phase(spark, _write_jsonl(tmp_path / "mix.jsonl", [upsert, delete]), 0)
+
+    rows = {r["doc_id"]: r["content_hash"] for r in spark.table(DOCUMENTS_TABLE).collect()}
+    assert rows["1"] == content_hash("u", "t", "x", ["2"], False)
+    assert rows["9"] == content_hash("", "", "", [], True)
