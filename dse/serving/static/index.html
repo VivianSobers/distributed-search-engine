@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Distributed Search</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 2rem;
+      }
+      input,
+      button {
+        font-size: 1rem;
+        padding: 0.5rem;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      li {
+        margin: 0.8rem 0;
+      }
+      .meta {
+        color: #555;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Distributed Search</h1>
+    <p id="version">Live version: -</p>
+    <form id="search-form">
+      <input id="query" type="text" placeholder="Search query" />
+      <button type="submit">Search</button>
+    </form>
+    <ul id="results"></ul>
+    <script>
+      async function refreshHealth() {
+        const r = await fetch("/health");
+        const payload = await r.json();
+        document.getElementById("version").textContent = `Live version: ${payload.version ?? "-"}`;
+      }
+
+      async function runSearch(query) {
+        const url = new URL("/search", window.location.origin);
+        url.searchParams.set("q", query);
+        const r = await fetch(url);
+        if (r.status !== 200) {
+          document.getElementById("results").textContent = "Service unavailable.";
+          return;
+        }
+        const payload = await r.json();
+        document.getElementById("version").textContent = `Live version: ${payload.version}`;
+        const list = document.getElementById("results");
+        list.replaceChildren();
+        if (payload.results.length === 0) {
+          const empty = document.createElement("li");
+          empty.textContent = "No results.";
+          list.append(empty);
+          return;
+        }
+        for (const row of payload.results) {
+          const link = document.createElement("a");
+          link.textContent = row.title;
+          link.rel = "noreferrer";
+          link.target = "_blank";
+          if (/^https?:\/\//i.test(row.url)) link.href = row.url;
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = `doc id: ${row.doc_id} | score: ${row.score.toFixed(6)}`;
+          const item = document.createElement("li");
+          item.append(link, meta);
+          list.append(item);
+        }
+      }
+
+      document.getElementById("search-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        runSearch(document.getElementById("query").value);
+      });
+
+      refreshHealth();
+    </script>
+  </body>
+</html>
