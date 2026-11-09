@@ -43,3 +43,28 @@ The system does the following:
 - Builds the inverted index and computes PageRank on Spark executors.
 - Publishes each new search version only after it passes validation.
 - Keeps serving the previous version when a later export fails.
+
+## Architecture
+
+| Node | Runs | Role |
+|---|---|---|
+| Node 1 | Spark driver, HDFS client | Holds the corpus, uploads it to HDFS, runs ingestion |
+| Node 2 | NameNode, DataNode, Spark worker | Stores Iceberg data and metadata |
+| Node 3 | Spark master, Spark worker, DataNode, Spark drivers | Runs indexing, PageRank and export |
+| Node 4 | FastAPI service, HDFS client | Pulls exports, serves search and the frontend |
+
+The HDFS replication factor is 2, across Nodes 2 and 3. Node 4 runs no Spark or HDFS daemon and never reads Iceberg.
+
+```mermaid
+flowchart LR
+    C[Corpus on Node 1] -->|hdfs put| H[(HDFS)]
+    H --> I[Ingestion job]
+    I -->|merge| T[(Iceberg tables)]
+    T --> X[Index job]
+    T --> P[PageRank job]
+    X --> E[Export job]
+    P --> E
+    E -->|validated Parquet vN| H
+    H -->|pull and validate| S[Search service on Node 4]
+    S --> U[Browser]
+```
