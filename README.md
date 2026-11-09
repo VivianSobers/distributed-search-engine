@@ -114,3 +114,20 @@ Re-ingesting Phase 0 changes no rows and leaves the documents snapshot ID unchan
 RDD lineage and HDFS checkpoints are what let the job recover. Spark reschedules the lost tasks on the remaining worker.
 
 The end-to-end run also forces an export failure with `--simulate-failure`. Search stays on version 1, and no `v2` or temporary directory is left behind. The next successful export becomes version 2.
+
+## Repository layout
+
+```text
+config/cluster.env        node addresses and ports
+conf/                     Iceberg catalog template
+deploy/                   cluster config rendering and the Spark job launcher
+dse/records.py            record parsing and validation
+dse/text.py               tokenizer and content hash
+dse/ranking.py            BM25 and score combination
+dse/jobs/                 ingest, index, PageRank, export, snapshots, fault check
+dse/serving/              search index, API, frontend, export pull
+scripts/install_deps.sh   installs Hadoop, Spark, Iceberg and the Python environment
+scripts/node*.sh          one script per node role
+scripts/local_e2e.sh      full pipeline on one machine
+tests/                    unit and Spark tests
+```
