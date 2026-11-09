@@ -43,3 +43,18 @@ def _list(spark) -> int:
             }
         )
     return 0
+
+
+def _show(spark, snapshot_id: int, doc_id: str) -> int:
+    rows = (
+        spark.sql(f"SELECT * FROM {DOCUMENTS_TABLE} VERSION AS OF {int(snapshot_id)}")
+        .where(f"doc_id = '{doc_id.replace(chr(39), chr(39) * 2)}'")
+        .collect()
+    )
+    if not rows:
+        _emit({"found": False})
+        return 0
+    out = rows[0].asDict()
+    out["found"] = True
+    _emit(out)
+    return 0
