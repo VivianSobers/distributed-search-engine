@@ -106,3 +106,11 @@ These figures come from `scripts/local_e2e.sh` on the full corpus. The PageRank 
 | Rollback to Phase 0 | n/a | n/a | n/a | 1,000 | 499 | 453,438 | v3 |
 
 Re-ingesting Phase 0 changes no rows and leaves the documents snapshot ID unchanged.
+
+## Fault tolerance
+
+`scripts/fault_tolerance_check.sh` runs PageRank once undisturbed. It runs it again, and during that second run sends `kill -9` to one Spark worker and its executors while the job is running. The check requires the job's log to show the lost executor, requires the job to finish, and requires the ranks to match the undisturbed run to within 1e-9.
+
+RDD lineage and HDFS checkpoints are what let the job recover. Spark reschedules the lost tasks on the remaining worker.
+
+The end-to-end run also forces an export failure with `--simulate-failure`. Search stays on version 1, and no `v2` or temporary directory is left behind. The next successful export becomes version 2.
