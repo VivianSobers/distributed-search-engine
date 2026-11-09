@@ -229,3 +229,101 @@ def test_toy_phase1_tombstone_update_and_live_links(spark, tmp_path: Path):
         .count()
     )
     assert bad_links == 0
+
+
+def test_same_phase_twice_keeps_rows_and_snapshot(spark, tmp_path: Path):
+    _drop_ingest_tables(spark)
+
+    phase0 = _write_jsonl(
+        tmp_path / "phase0.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "1",
+                    "url": "https://ex/1",
+                    "title": "One",
+                    "text": "Plants need water.",
+                    "links": ["2", "3"],
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "2",
+                    "url": "https://ex/2",
+                    "title": "Two",
+                    "text": "Soil supports a plant.",
+                    "links": ["1"],
+                }
+            ),
+        ],
+    )
+
+    _run_phase(spark, phase0, 0)
+    docs_before = spark.table(DOCUMENTS_TABLE).orderBy("doc_id").collect()
+    links_before = spark.table(LINKS_TABLE).orderBy("src_id", "dst_id").collect()
+    rejects_before = spark.table(REJECTS_TABLE).orderBy("phase", "line_no").collect()
+    snapshot_before = _snapshot_id(spark)
+
+    _run_phase(spark, phase0, 0)
+    docs_after = spark.table(DOCUMENTS_TABLE).orderBy("doc_id").collect()
+    links_after = spark.table(LINKS_TABLE).orderBy("src_id", "dst_id").collect()
+    rejects_after = spark.table(REJECTS_TABLE).orderBy("phase", "line_no").collect()
+    snapshot_after = _snapshot_id(spark)
+
+    assert docs_after == docs_before
+    assert links_after == links_before
+    assert rejects_after == rejects_before
+    assert snapshot_after == snapshot_before
+
+
+def test_reingest_phase0_after_phase1_keeps_tombstone(spark, tmp_path: Path):
+    _drop_ingest_tables(spark)
+
+    phase0 = _write_jsonl(
+        tmp_path / "phase0.jsonl",
+        [
+            json.dumps(
+                {
+                    "doc_id": "2",
+                    "url": "https://ex/2",
+                    "title": "Two",
+                    "text": "Soil supports a plant.",
+                    "links": ["1"],
+                }
+            ),
+            json.dumps(
+                {
+                    "doc_id": "1",
+                    "url": "https://ex/1",
+                    "title": "One",
+                    "text": "Plants need water.",
+                    "links": [],
+                }
+            ),
+        ],
+    )
+    phase1 = _write_jsonl(tmp_path / "phase1.jsonl", [json.dumps({"op": "DELETE", "doc_id": "2"})])
+
+    _run_phase(spark, phase0, 0)
+    _run_phase(spark, phase1, 1)
+    docs_before = spark.table(DOCUMENTS_TABLE).orderBy("doc_id").collect()
+    links_before = spark.table(LINKS_TABLE).orderBy("src_id", "dst_id").collect()
+    snapshot_before = _snapshot_id(spark)
+
+    _run_phase(spark, phase0, 0)
+
+    docs_after = spark.table(DOCUMENTS_TABLE).orderBy("doc_id").collect()
+    links_after = spark.table(LINKS_TABLE).orderBy("src_id", "dst_id").collect()
+    snapshot_after = _snapshot_id(spark)
+
+    assert docs_after == docs_before
+    assert links_after == links_before
+    assert snapshot_after == snapshot_before
+
+    doc2_deleted = (
+        spark.table(DOCUMENTS_TABLE)
+        .where(F.col("doc_id") == "2")
+        .select("is_deleted")
+        .collect()[0][0]
+    )
+    assert doc2_deleted is True
