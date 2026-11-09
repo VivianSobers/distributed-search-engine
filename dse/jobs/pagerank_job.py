@@ -114,3 +114,69 @@ def compute_pagerank(
     links.unpersist()
     node_rdd.unpersist()
     return result
+
+
+def _parse_args(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(description="Compute PageRank from current corpus")
+    parser.add_argument("--iterations", type=int, default=PAGERANK_DEFAULT_ITERATIONS)
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    spark = build_session("pagerank-job")
+    try:
+        if args.checkpoint_dir:
+            spark.sparkContext.setCheckpointDir(args.checkpoint_dir)
+
+        documents_snapshot = current_snapshot(spark, DOCUMENTS_TABLE)
+        previous_snapshot = last_snapshot(spark, "pagerank")
+        if (
+            documents_snapshot is not None
+            and previous_snapshot is not None
+            and previous_snapshot == documents_snapshot
+        ):
+            print(json.dumps({"status": "skipped"}))
+            return 0
+
+        nodes = spark.sql(
+            f"SELECT doc_id FROM {DOCUMENTS_TABLE} WHERE is_deleted = false"
+        )
+        edges = spark.sql(f"SELECT src_id, dst_id FROM {LINKS_TABLE}")
+        ranks = compute_pagerank(
+            spark=spark,
+            nodes=nodes,
+            edges=edges,
+            iterations=args.iterations,
+        )
+
+        spark.sql(
+            f"""
+            CREATE TABLE IF NOT EXISTS {PAGERANK_TABLE} (
+                doc_id STRING,
+                rank DOUBLE
+            ) USING iceberg
+            """
+        )
+        ranks.createOrReplaceTempView("pagerank_result")
+        spark.sql(
+            f"INSERT OVERWRITE {PAGERANK_TABLE} SELECT doc_id, rank FROM pagerank_result"
+        )
+
+        if documents_snapshot is not None:
+            record_snapshot(spark, "pagerank", documents_snapshot)
+
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "rows": ranks.count(),
+                    "source_snapshot": documents_snapshot,
+                    "iterations": args.iterations,
+                }
+            )
+        )
+        return 0
+    finally:
+        spark.stop()
