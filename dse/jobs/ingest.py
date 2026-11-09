@@ -85,3 +85,28 @@ def ensure_tables(spark: SparkSession) -> None:
         ) USING iceberg
         """
     )
+
+
+def read_phase(spark: SparkSession, path: str, phase: int) -> tuple[DataFrame, DataFrame]:
+    lines = spark.sparkContext.textFile(path).zipWithIndex().map(lambda pair: (pair[0], pair[1] + 1))
+    parsed = lines.map(lambda pair: parse_line(pair[0], line_no=pair[1], phase=phase))
+
+    accepted_rdd = parsed.filter(lambda rec: isinstance(rec, Accepted)).map(
+        lambda rec: (
+            rec.doc_id,
+            rec.url,
+            rec.title,
+            rec.text,
+            list(rec.links),
+            rec.op,
+            rec.version,
+            rec.line_no,
+        )
+    )
+    rejected_rdd = parsed.filter(lambda rec: isinstance(rec, Rejected)).map(
+        lambda rec: (rec.line_no, rec.reason, rec.raw)
+    )
+
+    accepted = spark.createDataFrame(accepted_rdd, schema=ACCEPTED_SCHEMA)
+    rejected = spark.createDataFrame(rejected_rdd, schema=REJECTED_SCHEMA)
+    return accepted, rejected
