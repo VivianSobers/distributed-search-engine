@@ -131,3 +131,31 @@ scripts/node*.sh          one script per node role
 scripts/local_e2e.sh      full pipeline on one machine
 tests/                    unit and Spark tests
 ```
+
+## Getting started
+
+You need Java 11 and Python 3.10 on every machine. Installation is unattended and needs no root access:
+
+```bash
+bash scripts/install_deps.sh
+source scripts/env.sh
+```
+
+Everything installs into `~/.local/opt/bd-search-engine`. To override that location, set `BD_HOME`.
+
+The corpus is not in this repository. Download it from the course page into `data/full/phase-0/pages.jsonl` and `data/full/phase-1/changes.json`.
+
+Run the unit and Spark tests:
+
+```bash
+source scripts/env.sh
+pytest -q
+```
+
+Run the whole system on one machine. This takes about 9 minutes:
+
+```bash
+bash scripts/local_e2e.sh
+```
+
+The script prints `E2E PASSED` at the end. Use `--keep` to leave the cluster running afterwards.
