@@ -6,6 +6,7 @@ from typing import Sequence
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
+from pyspark.storagelevel import StorageLevel
 from pyspark.sql.types import (
     ArrayType,
     IntegerType,
@@ -15,7 +16,7 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from dse.config import CATALOG, DOCUMENTS_TABLE, LINKS_TABLE, REJECTS_TABLE
+from dse.config import DOCUMENTS_TABLE, LINKS_TABLE, NAMESPACE, REJECTS_TABLE
 from dse.jobs.state import current_snapshot
 from dse.records import Accepted, Rejected, parse_line
 from dse.spark_session import build_session
@@ -29,6 +30,7 @@ ACCEPTED_SCHEMA = StructType(
         StructField("title", StringType(), nullable=False),
         StructField("text", StringType(), nullable=False),
         StructField("links", ArrayType(StringType(), containsNull=False), nullable=False),
+        StructField("content_hash", StringType(), nullable=False),
         StructField("op", StringType(), nullable=False),
         StructField("version", IntegerType(), nullable=False),
         StructField("line_no", LongType(), nullable=False),
@@ -44,14 +46,8 @@ REJECTED_SCHEMA = StructType(
 )
 
 
-_content_hash_udf = F.udf(
-    lambda url, title, text, links, is_deleted: content_hash(url, title, text, list(links), is_deleted),
-    StringType(),
-)
-
-
 def ensure_tables(spark: SparkSession) -> None:
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {CATALOG}.search")
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {NAMESPACE}")
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {DOCUMENTS_TABLE} (
@@ -89,7 +85,9 @@ def ensure_tables(spark: SparkSession) -> None:
 
 def read_phase(spark: SparkSession, path: str, phase: int) -> tuple[DataFrame, DataFrame]:
     lines = spark.sparkContext.textFile(path).zipWithIndex().map(lambda pair: (pair[0], pair[1] + 1))
-    parsed = lines.map(lambda pair: parse_line(pair[0], line_no=pair[1], phase=phase))
+    parsed = lines.map(
+        lambda pair: parse_line(pair[0], line_no=pair[1], phase=phase)
+    ).persist(StorageLevel.MEMORY_AND_DISK)
 
     accepted_rdd = parsed.filter(lambda rec: isinstance(rec, Accepted)).map(
         lambda rec: (
@@ -98,6 +96,7 @@ def read_phase(spark: SparkSession, path: str, phase: int) -> tuple[DataFrame, D
             rec.title,
             rec.text,
             list(rec.links),
+            content_hash(rec.url, rec.title, rec.text, list(rec.links), rec.op == "DELETE"),
             rec.op,
             rec.version,
             rec.line_no,
@@ -122,20 +121,9 @@ def deduplicate(accepted: DataFrame) -> DataFrame:
 
 
 def merge_documents(spark: SparkSession, incoming: DataFrame, phase: int) -> int:
-    delete_links = F.array().cast("array<string>")
-    is_delete = F.col("op") == F.lit("DELETE")
-
     normalized = (
-        incoming.select("doc_id", "url", "title", "text", "links", "op", "version")
-        .withColumn("is_deleted", is_delete)
-        .withColumn("url", F.when(is_delete, F.lit("")).otherwise(F.col("url")))
-        .withColumn("title", F.when(is_delete, F.lit("")).otherwise(F.col("title")))
-        .withColumn("text", F.when(is_delete, F.lit("")).otherwise(F.col("text")))
-        .withColumn("links", F.when(is_delete, delete_links).otherwise(F.col("links")))
-        .withColumn(
-            "content_hash",
-            _content_hash_udf(F.col("url"), F.col("title"), F.col("text"), F.col("links"), F.col("is_deleted")),
-        )
+        incoming.select("doc_id", "url", "title", "text", "links", "op", "version", "content_hash")
+        .withColumn("is_deleted", F.col("op") == F.lit("DELETE"))
         .withColumn("updated_phase", F.lit(phase).cast(IntegerType()))
         .select(
             "doc_id",
@@ -167,7 +155,7 @@ def merge_documents(spark: SparkSession, incoming: DataFrame, phase: int) -> int
             )
         )
         .select("s.*")
-        .persist()  # keeps the hash UDF out of the MERGE plan, which cannot generate code for it
+        .persist()  # avoids recomputing between changed.count() and MERGE
     )
 
     changed_count = changed.count()
@@ -213,7 +201,7 @@ def rebuild_links(spark: SparkSession) -> int:
         .join(live_ids, F.col("dst_id") == F.col("live_id"), "inner")
         .select("src_id", "dst_id")
         .distinct()
-    )
+    ).persist()
 
     link_count = candidate_links.count()
     existing_links = spark.table(LINKS_TABLE).select("src_id", "dst_id").distinct()
@@ -221,12 +209,14 @@ def rebuild_links(spark: SparkSession) -> int:
     has_new = candidate_links.exceptAll(existing_links).limit(1).count() > 0
     has_removed = existing_links.exceptAll(candidate_links).limit(1).count() > 0
     if not (has_new or has_removed):
+        candidate_links.unpersist()
         return link_count
 
     temp_view = "_candidate_links"
     candidate_links.createOrReplaceTempView(temp_view)
     spark.sql(f"INSERT OVERWRITE TABLE {LINKS_TABLE} SELECT src_id, dst_id FROM {temp_view}")
     spark.catalog.dropTempView(temp_view)
+    candidate_links.unpersist()
     return link_count
 
 
