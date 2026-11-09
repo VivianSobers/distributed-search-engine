@@ -14,16 +14,6 @@ from fastapi.testclient import TestClient
 
 from dse.serving.asgi import make_app
 
-SCRIPTS = [
-    "scripts/lib.sh",
-    "scripts/node1_ingest.sh",
-    "scripts/node2_start.sh",
-    "scripts/node3_start.sh",
-    "scripts/node3_process.sh",
-    "scripts/node4_pull.sh",
-    "scripts/node4_serve.sh",
-]
-
 NODE_SCRIPTS = [
     "scripts/node1_ingest.sh",
     "scripts/node2_start.sh",
@@ -32,6 +22,8 @@ NODE_SCRIPTS = [
     "scripts/node4_pull.sh",
     "scripts/node4_serve.sh",
 ]
+
+SCRIPTS = ["scripts/lib.sh", *NODE_SCRIPTS]
 
 
 @pytest.fixture(autouse=True)
