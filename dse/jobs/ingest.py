@@ -201,3 +201,30 @@ def merge_documents(spark: SparkSession, incoming: DataFrame, phase: int) -> int
     spark.catalog.dropTempView(temp_view)
     changed.unpersist()
     return changed_count
+
+
+def rebuild_links(spark: SparkSession) -> int:
+    live_docs = spark.table(DOCUMENTS_TABLE).where(~F.col("is_deleted"))
+    live_ids = live_docs.select(F.col("doc_id").alias("live_id"))
+
+    candidate_links = (
+        live_docs.select(F.col("doc_id").alias("src_id"), F.explode_outer("links").alias("dst_id"))
+        .where(F.col("dst_id").isNotNull())
+        .join(live_ids, F.col("dst_id") == F.col("live_id"), "inner")
+        .select("src_id", "dst_id")
+        .distinct()
+    )
+
+    link_count = candidate_links.count()
+    existing_links = spark.table(LINKS_TABLE).select("src_id", "dst_id").distinct()
+
+    has_new = candidate_links.exceptAll(existing_links).limit(1).count() > 0
+    has_removed = existing_links.exceptAll(candidate_links).limit(1).count() > 0
+    if not (has_new or has_removed):
+        return link_count
+
+    temp_view = "_candidate_links"
+    candidate_links.createOrReplaceTempView(temp_view)
+    spark.sql(f"INSERT OVERWRITE TABLE {LINKS_TABLE} SELECT src_id, dst_id FROM {temp_view}")
+    spark.catalog.dropTempView(temp_view)
+    return link_count
