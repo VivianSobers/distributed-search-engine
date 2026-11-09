@@ -94,3 +94,15 @@ Final score = 0.7 * (BM25 / max BM25) + 0.3 * (PageRank / max PageRank)
 ```
 
 The BM25 maximum is taken over the results of the current query, and the PageRank maximum over the whole served corpus. A page with no incoming links gets a low PageRank, so it can rank below a page with a slightly lower BM25 score. The page titled April ranks 37th for the query `april` for this reason.
+
+## Verified results
+
+These figures come from `scripts/local_e2e.sh` on the full corpus. The PageRank scores, posting count, average document length, and the top five results for `april` also matched a separate plain Python calculation from the raw files.
+
+| Stage | Lines accepted | Rejected | Duplicates removed | Live pages | Links | Postings | Search version |
+|---|---|---|---|---|---|---|---|
+| Phase 0 | 1,020 | 20 | 20 | 1,000 | 499 | 453,438 | v1 |
+| Phase 1 | 100 | 0 | 0 | 975 | 467 | 427,998 | v2 |
+| Rollback to Phase 0 | n/a | n/a | n/a | 1,000 | 499 | 453,438 | v3 |
+
+Re-ingesting Phase 0 changes no rows and leaves the documents snapshot ID unchanged.
