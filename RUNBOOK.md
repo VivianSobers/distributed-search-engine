@@ -36,3 +36,22 @@ sudo mkdir -p /serving && sudo chown "$USER" /serving
 ```
 
 The node scripts are bash scripts. Run them with `bash scripts/<name>.sh` from any directory.
+
+## 3. Start the cluster
+
+Run these in order:
+
+| Order | Node | Command |
+|---|---|---|
+| 1 | Node 2 | `bash scripts/node2_start.sh` |
+| 2 | Node 3 | `bash scripts/node3_start.sh` |
+| 3 | Node 4 | `bash scripts/node4_serve.sh`, and leave it running |
+
+`node2_start.sh` formats the NameNode only the first time. Check the cluster from Node 2 or Node 3:
+
+```bash
+source scripts/lib.sh
+hdfs dfsadmin -report | grep 'Live datanodes'
+```
+
+It should report 2 live DataNodes. The Spark master page at `http://<node3-ip>:8080` should list 2 workers.
