@@ -101,7 +101,7 @@ def _list_versions(fs, root_path) -> list[int]:
     return versions
 
 
-def _write_manifest(fs, jvm, manifest_path, payload: dict) -> None:
+def _write_manifest(fs, manifest_path, payload: dict) -> None:
     stream = fs.create(manifest_path, True)
     try:
         stream.write(bytearray(json.dumps(payload).encode("utf-8")))
@@ -213,7 +213,7 @@ def _run_export(spark, export_root: str, simulate_failure: bool) -> tuple[int, d
             "max_pagerank": float(max_pr) if max_pr is not None else 0.0,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        _write_manifest(fs, jvm, manifest_path, manifest)
+        _write_manifest(fs, manifest_path, manifest)
 
         if fs.exists(final_path):
             return 1, {"status": "error", "errors": [f"destination exists: {final_path.toString()}"]}
