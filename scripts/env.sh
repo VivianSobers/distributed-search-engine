@@ -33,4 +33,4 @@ export SPARK_CONF_FILE="$BD_HOME/conf/iceberg.conf"
 export PYSPARK_PYTHON="$BD_HOME/venv/bin/python"
 export PYSPARK_DRIVER_PYTHON="$BD_HOME/venv/bin/python"
 
-export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$BD_HOME/venv/bin:$PATH"
+export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$SPARK_HOME/sbin:$BD_HOME/venv/bin:$PATH"
