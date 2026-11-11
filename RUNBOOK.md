@@ -1,6 +1,8 @@
 # Four-node runbook
 
-These steps run the project across four machines. They have not yet been rehearsed on four separate machines. The single-machine rehearsal is `bash scripts/local_e2e.sh`.
+These steps run the project across four machines. The node scripts below have been rehearsed in four containers with separate IP addresses and user accounts (`bash scripts/rehearse_four_nodes.sh`), but not yet on four physical machines over ZeroTier. The single-machine rehearsal is `bash scripts/local_e2e.sh`.
+
+The four machines may use different usernames and home directories. HDFS permission checks are turned off in the generated configuration for that reason, so keep the cluster on the private ZeroTier network.
 
 ## 1. Network
 
@@ -115,6 +117,7 @@ Then run `bash scripts/node4_pull.sh` on Node 4. Search moves to a new version h
 |---|---|---|
 | `Invalid or placeholder IP address` | `config/cluster.env` still has `0.0.0.0` | Fill in the four node IPs on that machine |
 | `Live datanodes` shows fewer than 2 | ZeroTier or the firewall | Ping between the nodes and recheck section 1 |
+| A Spark job fails with `Cannot run program "python"` | A worker was started outside the node scripts | Restart it with `scripts/node2_start.sh` or `scripts/node3_start.sh`, or source `scripts/lib.sh` first |
 | A Spark job waits forever for resources | Workers cannot reach the driver | Check that the firewall trusts the ZeroTier interface on the driver's node |
 | The export fails with `built from a different snapshot` | Index or PageRank did not run after the last ingest | Run `bash scripts/node3_process.sh` |
 | `/search` returns 503 | No version has been pulled yet | Run `bash scripts/node4_pull.sh` |
