@@ -1,0 +1,32 @@
+FROM docker.io/library/ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-11-jdk-headless \
+    python3.10 \
+    python3.10-venv \
+    python3-pip \
+    curl \
+    procps \
+    iproute2 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /opt/dse-src
+RUN chmod -R a+rX /opt/dse-src
+
+RUN for n in 1 2 3 4; do useradd -m "node${n}"; done
+
+RUN for n in 1 2 3 4; do \
+      install -d -m 0755 "/home/node${n}/.local/opt/bd-search-engine/downloads"; \
+      cp -a /cache/. "/home/node${n}/.local/opt/bd-search-engine/downloads/"; \
+      chown -R "node${n}:node${n}" "/home/node${n}/.local"; \
+      su -s /bin/bash "node${n}" -c 'export HOME="/home/node'"${n}"'"; cd /opt/dse-src && bash scripts/install_deps.sh'; \
+      rm -rf "/home/node${n}/.local/opt/bd-search-engine/downloads/"*; \
+    done
+
+RUN mkdir -p /serving && chown node4:node4 /serving
+
+CMD ["sleep", "infinity"]
