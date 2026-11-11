@@ -30,7 +30,7 @@ A four-node search engine for the Big Data 2026 project <em>Distributed Search E
 </div>
 
 > [!NOTE]
-> Every stage is built and tested, and the full pipeline passes on one machine against real HDFS and a real Spark standalone cluster (`bash scripts/local_e2e.sh`). It has not yet been run across four separate machines. [RUNBOOK.md](RUNBOOK.md) has the steps for that.
+> Every stage is built and tested. The full pipeline passes on one machine (`bash scripts/local_e2e.sh`) and across four containers that stand in for the four nodes (`bash scripts/rehearse_four_nodes.sh`). It has not yet been run on four physical machines over ZeroTier. [RUNBOOK.md](RUNBOOK.md) has the steps for that.
 
 ## Overview
 
@@ -115,6 +115,31 @@ RDD lineage and HDFS checkpoints are what let the job recover. Spark reschedules
 
 The end-to-end run also forces an export failure with `--simulate-failure`. Search stays on version 1, and no `v2` or temporary directory is left behind. The next successful export becomes version 2.
 
+## Four-node rehearsal
+
+`scripts/rehearse_four_nodes.sh` runs the node scripts from [RUNBOOK.md](RUNBOOK.md) in four containers on one machine. Each container is one node with its own IP address, its own user account and home directory, and its own copy of this repository with `config/cluster.env` filled in. Only Node 1 holds the corpus. The containers share one host, so the rehearsal does not cover ZeroTier, firewalls, or differences between operating systems.
+
+The run on the full corpus took about 13 minutes and checked the following:
+
+| Check | Result |
+|---|---|
+| Daemon placement | Node 2 ran the NameNode, a DataNode and a Spark worker. Node 3 ran the Spark master, a worker and a DataNode. Nodes 1 and 4 ran none |
+| Replication | `hdfs fsck` reported an average block replication of 2.0 with no under-replicated or missing blocks on `/warehouse`, `/exports` and `/raw` |
+| Phase 0, Phase 1, rollback | The same counts as the table above: versions 1, 2 and 3 with 1,000, 975 and 1,000 pages |
+| Re-ingesting Phase 0 | `documents_changed` was 0 |
+| Spark worker loss | The Node 2 worker and its executor were killed during PageRank. The driver logged the lost executor and the job finished on Node 3 |
+| Failed export | Search stayed on version 1 and no `v2` or temporary directory was left behind |
+| DataNode loss | With either DataNode killed, Node 4 read every file of the `v2` export with unchanged SHA-256 hashes. With the Node 3 DataNode down, the snapshot listing still ran |
+| Work distribution | The worker logs on Nodes 2 and 3 both show executors being launched |
+
+The rehearsal found three faults that a single machine hides. Each one would have stopped a real four-node run, and all three are fixed:
+
+- The Spark `sbin` directory was missing from `PATH`, so `start-worker.sh` was not found on a clean machine.
+- HDFS rejected writes from Node 1 because its user differs from the NameNode's user. Permission checks are now off in the generated `hdfs-site.xml`.
+- The driver sent its own Python path to the executors, which fails when home directories differ between nodes. Executors now find their own environment through `PATH`.
+
+The rehearsal needs `podman` and builds an image of about 12 GB on first use.
+
 ## Repository layout
 
 ```text
@@ -129,6 +154,8 @@ dse/serving/              search index, API, frontend, export pull
 scripts/install_deps.sh   installs Hadoop, Spark, Iceberg and the Python environment
 scripts/node*.sh          one script per node role
 scripts/local_e2e.sh      full pipeline on one machine
+scripts/rehearse_four_nodes.sh  four-node rehearsal in containers
+deploy/rehearsal/         container image and checks for the rehearsal
 tests/                    unit and Spark tests
 ```
 
@@ -159,6 +186,14 @@ bash scripts/local_e2e.sh
 ```
 
 The script prints `E2E PASSED` at the end. Use `--keep` to leave the cluster running afterwards.
+
+Rehearse the four-node layout in containers. This takes about 13 minutes once the image is built:
+
+```bash
+bash scripts/rehearse_four_nodes.sh
+```
+
+The script prints `FOUR NODE REHEARSAL PASSED` at the end and writes its logs and a `summary.json` under `~/.local/opt/bd-search-engine/rehearsal/`.
 
 ## Design decisions
 
