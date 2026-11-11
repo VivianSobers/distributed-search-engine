@@ -175,7 +175,7 @@ def test_render_outputs_valid_configs(tmp_path: Path):
     assert "spark.sql.catalog.iceberg_catalog.type hadoop" in spark_defaults
     assert "spark.sql.catalog.iceberg_catalog.warehouse hdfs://10.0.0.2:9000/warehouse" in spark_defaults
     assert f"spark.jars {bd_home}/iceberg/iceberg-spark-runtime-3.3_2.12-1.8.1.jar" in spark_defaults
-    assert f"spark.pyspark.python {bd_home}/venv/bin/python" in spark_defaults
+    assert "spark.pyspark.python python\n" in spark_defaults
     assert "spark.task.maxFailures 4" in spark_defaults
 
     # 6. spark/spark-env.sh

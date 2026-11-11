@@ -30,7 +30,8 @@ export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
 export SPARK_HOME="$BD_HOME/spark-3.3.4-bin-hadoop3"
 export ICEBERG_JAR="$BD_HOME/iceberg/iceberg-spark-runtime-3.3_2.12-1.8.1.jar"
 export SPARK_CONF_FILE="$BD_HOME/conf/iceberg.conf"
-export PYSPARK_PYTHON="$BD_HOME/venv/bin/python"
+# A bare name: executors on other nodes resolve their own venv through PATH
+export PYSPARK_PYTHON=python
 export PYSPARK_DRIVER_PYTHON="$BD_HOME/venv/bin/python"
 
 export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$SPARK_HOME/sbin:$BD_HOME/venv/bin:$PATH"

@@ -109,7 +109,8 @@ def render(env: dict[str, str], bd_home: Path, out: Path) -> None:
         spark_defaults_lines.append(f"{k} {v}")
     spark_defaults_lines.extend([
         f"spark.jars {bd_home_str}/iceberg/iceberg-spark-runtime-3.3_2.12-1.8.1.jar",
-        f"spark.pyspark.python {bd_home_str}/venv/bin/python",
+        # A bare name, so each node resolves its own venv through PATH
+        "spark.pyspark.python python",
         "spark.task.maxFailures 4",
     ])
     (spark_dir / "spark-defaults.conf").write_text("\n".join(spark_defaults_lines) + "\n", encoding="utf-8")
