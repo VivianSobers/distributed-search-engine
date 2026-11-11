@@ -157,6 +157,7 @@ def test_render_outputs_valid_configs(tmp_path: Path):
     assert hdfs_props.get("dfs.datanode.data.dir") == f"{bd_home}/hdfs/data"
     assert hdfs_props.get("dfs.namenode.rpc-bind-host") == "0.0.0.0"
     assert hdfs_props.get("dfs.namenode.datanode.registration.ip-hostname-check") == "false"
+    assert hdfs_props.get("dfs.permissions.enabled") == "false"
 
     # 3. hadoop/workers
     hadoop_workers = (out / "hadoop" / "workers").read_text(encoding="utf-8").splitlines()
