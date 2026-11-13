@@ -82,6 +82,14 @@ def render(env: dict[str, str], bd_home: Path, out: Path) -> None:
         "    <name>dfs.namenode.datanode.registration.ip-hostname-check</name>\n"
         "    <value>false</value>\n"
         "  </property>\n"
+        "  <property>\n"
+        "    <name>dfs.client.socket-timeout</name>\n"
+        "    <value>600000</value>\n"
+        "  </property>\n"
+        "  <property>\n"
+        "    <name>dfs.datanode.socket.write.timeout</name>\n"
+        "    <value>600000</value>\n"
+        "  </property>\n"
         "</configuration>\n"
     )
     (hadoop_dir / "hdfs-site.xml").write_text(hdfs_site, encoding="utf-8")
