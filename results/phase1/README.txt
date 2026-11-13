@@ -10,3 +10,13 @@ phase1_ingest_result.json  final result line:
   documents_snapshot 2152842344036546620
 
 To print the log:  bash scripts/show_vm1_output.sh results/phase1/phase1_ingest.log
+
+Phase 1 processing (VM3: index, PageRank, export)
+Run on: VM3, ZeroTier 192.168.193.217
+When:   2026-11-13, 15:07-15:24 IST
+Command: bash scripts/node3_process.sh   (repo commit 0937ec3)
+phase1_process.log result lines:
+  index:    status ok, postings 427998, documents 975
+  pagerank: status ok, rows 975, iterations 20
+  export:   status ok, version 2
+  all built from documents snapshot 2152842344036546620
